@@ -1,0 +1,30 @@
+{
+    "files.associations": {
+        "stdio2.h": "c",
+        "main.h": "c",
+        "hutil.h": "c",
+        "curl.h": "c",
+        "node.h": "c",
+        "wlan_parser.h": "c",
+        "esp_promisc.h": "c",
+        "platform.h": "c",
+        "stdio.h": "c",
+        "endian.h": "c",
+        "typecheck-gcc.h": "c",
+        "util.h": "c",
+        "wlan_util.h": "c",
+        "getopt.h": "c",
+        "wireless.h": "c",
+        "math.h": "c",
+        "time.h": "c",
+        "rtnetlink.h": "c",
+        "wlan80211.h": "c",
+        "libio.h": "c",
+        "olsr_header.h": "c",
+        "multi.h": "c",
+        "prism_header.h": "c",
+        "curses.h": "c",
+        "easy.h": "c",
+        "signal.h": "c"
+    }
+}

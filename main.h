@@ -31,6 +31,7 @@
 #include <uwifi/wlan_parser.h>
 #include <uwifi/conf.h>
 #include <uwifi/platform.h>
+#include <curl/curl.h>
 
 #define CONFIG_FILE "/etc/horst.conf"
 

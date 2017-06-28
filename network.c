@@ -178,7 +178,7 @@ static bool net_write(int fd, unsigned char* buf, size_t len)
 void net_send_packet(struct uwifi_packet *p)
 {
 	struct net_packet_info np;
-
+	/*
 	np.proto.version = PROTO_VERSION;
 	np.proto.type	= PROTO_PKT_INFO;
 
@@ -228,7 +228,10 @@ void net_send_packet(struct uwifi_packet *p)
 	if (p->bat_gw)
 		np.bat_flags |= PKT_BAT_FLAG_GW;
 	np.bat_pkt_type = p->bat_packet_type;
-
+	*/
+	memcpy(np.wlan_src, p->wlan_src, WLAN_MAC_LEN);
+	memcpy(np.wlan_dst, p->wlan_dst, WLAN_MAC_LEN);
+	
 	net_write(cli_fd, (unsigned char *)&np, sizeof(np));
 }
 

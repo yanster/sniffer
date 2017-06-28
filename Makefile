@@ -19,7 +19,7 @@
 NAME = horst
 
 # build options
-DEBUG = 0
+DEBUG = 1
 LIBUWIFI_SUBMODULE = 1
 
 OBJS += conf_options.o
@@ -40,9 +40,11 @@ OBJS += main.o
 OBJS += network.o
 OBJS += protocol_parser.o
 
-LIBS = -lncurses -lm -luwifi
+LIBS = -lncurses -lm -luwifi -lcurl
 INCLUDES = -I.
 CFLAGS += -std=gnu99 -Wall -Wextra -g $(INCLUDES) -DVERSION=\"$(shell git describe --tags)\"
+
+INCLUDES += -I./curl
 
 ifeq ($(LIBUWIFI_SUBMODULE),1)
 	INCLUDES += -I./libuwifi/inst/include

@@ -60,6 +60,9 @@ struct timespec time_real;
 
 static FILE* DF = NULL;
 
+static CURL *curl;
+static CURLcode res;
+
 /* receive packet buffer
  *
  * due to the way we receive packets the network (TCP connection) we have to
@@ -209,10 +212,11 @@ void update_spectrum_durations(void)
 
 static void write_to_file(struct uwifi_packet* p)
 {
-	char buf[40];
+	char buf[256];
+	char nline[256];
 	int i;
 	struct tm* ltm = localtime(&time_real.tv_sec);
-
+	/*
 	//timestamp, e.g. 2015-05-16 15:05:44.338806 +0300
 	i = strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", ltm);
 	i += snprintf(buf + i, sizeof(buf) - i, ".%06ld", (long)(time_real.tv_nsec / 1000));
@@ -231,6 +235,29 @@ static void write_to_file(struct uwifi_packet* p)
 		p->wlan_wep, p->wlan_wpa, p->wlan_rsn);
 	fprintf(DF, "%s, %s\n", ip_sprintf(p->ip_src), ip_sprintf(p->ip_dst));
 	fflush(DF);
+	*/
+	if(curl) {
+
+		snprintf(nline, sizeof(nline), "type=%s&dest=%s&source=%s&signal=%d&mode=%d",
+             wlan_get_packet_type_name(p->wlan_type), mac_name_lookup(p->wlan_dst, 0), mac_name_lookup(p->wlan_src,0), p->phy_signal, p->wlan_mode);
+
+		printf(nline);
+
+		curl_easy_setopt(curl, CURLOPT_URL, "http://dev1.getyfi.com:4000/v2/sniffer");
+		/* Now specify the POST data */ 
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, nline);
+	
+		/* Perform the request, res will get the return code */ 
+		res = curl_easy_perform(curl);
+		/* Check for errors */ 
+		if(res != CURLE_OK)
+		fprintf(stderr, "curl_easy_perform() failed: %s\n",
+				curl_easy_strerror(res));
+	
+		/* always cleanup */ 
+		curl_easy_cleanup(curl);
+	}
+
 }
 
 /* return true if packet is filtered */
@@ -315,6 +342,9 @@ void handle_packet(struct uwifi_packet* p)
 
 	if (conf.paused)
 		return;
+
+	printf( "Enter first integer\n" );
+	fflush( stdout );
 
 	/* we can't trust any fields except phy_* of packets with bad FCS */
 	if (!(p->phy_flags & PHY_FLAG_BADFCS)) {
@@ -566,6 +596,7 @@ static void generate_mon_ifname(char *const buf, const size_t buf_size)
 
 int main(int argc, char** argv)
 {
+
 	sigset_t workmask;
 	sigset_t waitmask;
 	struct sigaction sigint_action;
@@ -593,6 +624,8 @@ int main(int argc, char** argv)
 	clock_gettime(CLOCK_REALTIME, &time_real);
 
 	conf.intf.channel_idx = -1;
+
+	curl = curl_easy_init();
 
 	if (conf.mac_name_lookup)
 		mac_name_file_read(conf.mac_name_file);
@@ -634,8 +667,11 @@ int main(int argc, char** argv)
 
 	printf("Max PHY rate: %d Mbps\n", conf.intf.max_phy_rate/10);
 
+	/*
 	if (!conf.quiet && !conf.debug)
 		init_display();
+	*/
+	
 
 	if (conf.serveraddr[0] == '\0' && conf.port && conf.allow_client)
 		net_init_server_socket(conf.port);
@@ -709,6 +745,8 @@ void main_reset(void)
 
 void dumpfile_open(const char* name)
 {
+	
+	
 	if (DF != NULL) {
 		fclose(DF);
 		DF = NULL;
@@ -731,6 +769,11 @@ void dumpfile_open(const char* name)
 	fprintf(DF, "WEP, WPA1, RSN (WPA2), IP SRC, IP DST\n");
 
 	printlog(LOG_INFO, "- Writing to outfile %s", conf.dumpfile);
+
+	
+
+	printlog(LOG_INFO, "- WHERERE");
+	
 }
 
 
@@ -738,6 +781,8 @@ void dumpfile_open(const char* name)
 void print_rate_duration_table(void)
 {
 	int i;
+
+	
 
 	printf("LEN\t1M l\t1M s\t2M l\t2M s\t5.5M l\t5.5M s\t11M l\t11M s\t");
 	printf("6M\t9\t12M\t18M\t24M\t36M\t48M\t54M\n");
