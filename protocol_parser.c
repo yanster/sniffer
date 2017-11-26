@@ -25,27 +25,25 @@
 #define __FAVOR_BSD
 #include <netinet/udp.h>
 
-#include <uwifi/raw_parser.h>
-#include <uwifi/util.h>
-
 #include "olsr_header.h"
 #include "batman_header.h"
 #include "batman_adv_header-14.h"
 #include "main.h"
-#include "hutil.h"
+#include "util.h"
 
-static int parse_llc(unsigned char* buf, size_t len, struct uwifi_packet* p);
-static int parse_ip_header(unsigned char* buf, size_t len, struct uwifi_packet* p);
-static int parse_udp_header(unsigned char* buf, size_t len, struct uwifi_packet* p);
-static int parse_olsr_packet(unsigned char* buf, size_t len, struct uwifi_packet* p);
-static int parse_batman_packet(unsigned char* buf, size_t len, struct uwifi_packet* p);
-static int parse_batman_adv_packet(unsigned char* buf, size_t len, struct uwifi_packet* p);
-static int parse_meshcruzer_packet(unsigned char* buf, size_t len, struct uwifi_packet* p, int port);
+extern int wlan_parse_packet(unsigned char* buf, size_t len, struct packet_info* p);
+static int parse_llc(unsigned char* buf, size_t len, struct packet_info* p);
+static int parse_ip_header(unsigned char* buf, size_t len, struct packet_info* p);
+static int parse_udp_header(unsigned char* buf, size_t len, struct packet_info* p);
+static int parse_olsr_packet(unsigned char* buf, size_t len, struct packet_info* p);
+static int parse_batman_packet(unsigned char* buf, size_t len, struct packet_info* p);
+static int parse_batman_adv_packet(unsigned char* buf, size_t len, struct packet_info* p);
+static int parse_meshcruzer_packet(unsigned char* buf, size_t len, struct packet_info* p, int port);
 
 /* return true if we parsed enough = min ieee header */
-bool parse_packet(unsigned char* buf, size_t len, struct uwifi_packet* p)
+bool parse_packet(unsigned char* buf, size_t len, struct packet_info* p)
 {
-	int ret = uwifi_parse_raw(buf, len, p, conf.intf.arphdr);
+	int ret = wlan_parse_packet(buf, len, p);
 	if (ret == 0)
 		return true;
 	else if (ret < 0)
@@ -66,9 +64,9 @@ bool parse_packet(unsigned char* buf, size_t len, struct uwifi_packet* p)
 	return true;
 }
 
-static int parse_llc(unsigned char* buf, size_t len, struct uwifi_packet* p)
+static int parse_llc(unsigned char* buf, size_t len, struct packet_info* p)
 {
-	DBG_PRINT("* parse LLC\n");
+	DEBUG("* parse LLC\n");
 
 	if (len < 6)
 		return -1;
@@ -77,7 +75,7 @@ static int parse_llc(unsigned char* buf, size_t len, struct uwifi_packet* p)
 	buf = buf + 6;
 
 	if (ntohs(*((uint16_t*)buf)) == 0x4305) {
-		DBG_PRINT("BATMAN-ADV\n");
+		DEBUG("BATMAN-ADV\n");
 		buf++; buf++;
 		return parse_batman_adv_packet(buf, len - 8, p);
 	}
@@ -93,14 +91,12 @@ static int parse_llc(unsigned char* buf, size_t len, struct uwifi_packet* p)
 			return -1;
 		buf++;
 
-		DBG_PRINT("* parse LLC left %zd\n", len - 8);
+		DEBUG("* parse LLC left %zd\n", len - 8);
 		return 8;
 	}
 }
 
-static int parse_batman_adv_packet(unsigned char* buf,
-				   __attribute__((unused)) size_t len,
-				   struct uwifi_packet* p)
+static int parse_batman_adv_packet(unsigned char* buf, size_t len, struct packet_info* p)
 {
 	struct batman_ogm_packet *bp;
 	//batadv_ogm_packet
@@ -110,25 +106,25 @@ static int parse_batman_adv_packet(unsigned char* buf,
 	p->bat_version = bp->version;
 	p->bat_packet_type = bp->packet_type;
 
-	DBG_PRINT("parse bat len %zd type %d vers %d\n", len, bp->packet_type, bp->version);
+	DEBUG("parse bat len %zd type %d vers %d\n", len, bp->packet_type, bp->version);
 
 	/* version 14 */
 	if (bp->version == 14) {
 		switch (bp->packet_type) {
 		case BAT_OGM:
 			/* set GW flags only for "original" (not re-sent) OGMs */
-			if (bp->gw_flags != 0 && memcmp(bp->orig, p->wlan_src, WLAN_MAC_LEN) == 0)
+			if (bp->gw_flags != 0 && memcmp(bp->orig, p->wlan_src, MAC_LEN) == 0)
 				p->bat_gw = 1;
-			DBG_PRINT("OGM %d %d\n", bp->gw_flags, p->bat_gw);
+			DEBUG("OGM %d %d\n", bp->gw_flags, p->bat_gw);
 			return 0;
 		case BAT_ICMP:
-			DBG_PRINT("ICMP\n");
+			DEBUG("ICMP\n");
 			break;
 		case BAT_UNICAST:
-			DBG_PRINT("UNI %zu\n", sizeof(struct unicast_packet));
+			DEBUG("UNI %zu\n", sizeof(struct unicast_packet));
 			return sizeof(struct unicast_packet) + 14;
 		case BAT_BCAST:
-			DBG_PRINT("BCAST\n");
+			DEBUG("BCAST\n");
 			break;
 		case BAT_VIS:
 		case BAT_UNICAST_FRAG:
@@ -140,24 +136,24 @@ static int parse_batman_adv_packet(unsigned char* buf,
 	return 0;
 }
 
-static int parse_ip_header(unsigned char* buf, size_t len, struct uwifi_packet* p)
+static int parse_ip_header(unsigned char* buf, size_t len, struct packet_info* p)
 {
 	struct ip* ih;
 
-	DBG_PRINT("* parse IP\n");
+	DEBUG("* parse IP\n");
 
 	if (len < sizeof(struct ip))
 		return -1;
 
 	ih = (struct ip*)buf;
 
-	DBG_PRINT("*** IP SRC: %s\n", ip_sprintf(ih->ip_src.s_addr));
-	DBG_PRINT("*** IP DST: %s\n", ip_sprintf(ih->ip_dst.s_addr));
+	DEBUG("*** IP SRC: %s\n", ip_sprintf(ih->ip_src.s_addr));
+	DEBUG("*** IP DST: %s\n", ip_sprintf(ih->ip_dst.s_addr));
 	p->ip_src = ih->ip_src.s_addr;
 	p->ip_dst = ih->ip_dst.s_addr;
 	p->pkt_types |= PKT_TYPE_IP;
 
-	DBG_PRINT("IP proto: %d\n", ih->ip_p);
+	DEBUG("IP proto: %d\n", ih->ip_p);
 	switch (ih->ip_p) {
 		case IPPROTO_UDP: p->pkt_types |= PKT_TYPE_UDP; break;
 		/* all others set the type and return. no more parsing */
@@ -168,7 +164,7 @@ static int parse_ip_header(unsigned char* buf, size_t len, struct uwifi_packet* 
 	return ih->ip_hl * 4;
 }
 
-static int parse_udp_header(unsigned char* buf, size_t len, struct uwifi_packet* p)
+static int parse_udp_header(unsigned char* buf, size_t len, struct packet_info* p)
 {
 	struct udphdr* uh;
 
@@ -177,7 +173,7 @@ static int parse_udp_header(unsigned char* buf, size_t len, struct uwifi_packet*
 
 	uh = (struct udphdr*)buf;
 
-	DBG_PRINT("UPD dest port: %d\n", ntohs(uh->uh_dport));
+	DEBUG("UPD dest port: %d\n", ntohs(uh->uh_dport));
 	p->tcpudp_port = ntohs(uh->uh_dport);
 
 	buf = buf + 8;
@@ -195,7 +191,7 @@ static int parse_udp_header(unsigned char* buf, size_t len, struct uwifi_packet*
 	return 0;
 }
 
-static int parse_olsr_packet(unsigned char* buf, size_t len, struct uwifi_packet* p)
+static int parse_olsr_packet(unsigned char* buf, size_t len, struct packet_info* p)
 {
 	struct olsr* oh;
 	int number, msgtype;
@@ -208,7 +204,7 @@ static int parse_olsr_packet(unsigned char* buf, size_t len, struct uwifi_packet
 	// TODO: more than one olsr messages can be in one packet
 	msgtype = oh->olsr_msg[0].olsr_msgtype;
 
-	DBG_PRINT("OLSR msgtype: %d\n*** ", msgtype);
+	DEBUG("OLSR msgtype: %d\n*** ", msgtype);
 
 	p->pkt_types |= PKT_TYPE_OLSR;
 	p->olsr_type = msgtype;
@@ -218,13 +214,13 @@ static int parse_olsr_packet(unsigned char* buf, size_t len, struct uwifi_packet
 
 	if (msgtype == HELLO_MESSAGE) {
 		number = (ntohs(oh->olsr_msg[0].olsr_msgsize) - 12) / sizeof(struct hellomsg);
-		DBG_PRINT("HELLO %d\n", number);
+		DEBUG("HELLO %d\n", number);
 		p->olsr_neigh = number;
 	}
 
 	if (msgtype == LQ_HELLO_MESSAGE) {
 		number = (ntohs(oh->olsr_msg[0].olsr_msgsize) - 16) / 12;
-		DBG_PRINT("LQ_HELLO %d (%d)\n", number, (ntohs(oh->olsr_msg[0].olsr_msgsize) - 16));
+		DEBUG("LQ_HELLO %d (%d)\n", number, (ntohs(oh->olsr_msg[0].olsr_msgsize) - 16));
 		p->olsr_neigh = number;
 	}
 #if 0
@@ -233,13 +229,13 @@ static int parse_olsr_packet(unsigned char* buf, size_t len, struct uwifi_packet
 
 	if (msgtype == TC_MESSAGE) {
 		number = (ntohs(oh->olsr_msg[0].olsr_msgsize)-12) / sizeof(struct tcmsg);
-		DBG_PRINT("TC %d\n", number);
+		DEBUG("TC %d\n", number);
 		p->olsr_tc = number;
 	}
 
 	if (msgtype == LQ_TC_MESSAGE) {
 		number = (ntohs(oh->olsr_msg[0].olsr_msgsize)-16) / 8;
-		DBG_PRINT("LQ_TC %d (%d)\n", number, (ntohs(oh->olsr_msg[0].olsr_msgsize)-16));
+		DEBUG("LQ_TC %d (%d)\n", number, (ntohs(oh->olsr_msg[0].olsr_msgsize)-16));
 		p->olsr_tc = number;
 	}
 
@@ -248,12 +244,12 @@ static int parse_olsr_packet(unsigned char* buf, size_t len, struct uwifi_packet
 		know how to contact the gw, so have a indirect connection to a GW themselves */
 		struct hnapair* hna;
 		number = (ntohs(oh->olsr_msg[0].olsr_msgsize) - 12) / sizeof(struct hnapair);
-		DBG_PRINT("HNA NUM: %d (%d) [%d]\n", number, ntohs(oh->olsr_msg[0].olsr_msgsize),
+		DEBUG("HNA NUM: %d (%d) [%d]\n", number, ntohs(oh->olsr_msg[0].olsr_msgsize),
 			(int)sizeof(struct hnapair) );
 		for (i = 0; i < number; i++) {
 			hna = &(oh->olsr_msg[0].message.hna.hna_net[i]);
-			DBG_PRINT("HNA %s", ip_sprintf(hna->addr));
-			DBG_PRINT("/%s\n", ip_sprintf(hna->netmask));
+			DEBUG("HNA %s", ip_sprintf(hna->addr));
+			DEBUG("/%s\n", ip_sprintf(hna->netmask));
 			if (hna->addr == 0 && hna->netmask == 0)
 				p->pkt_types |= PKT_TYPE_OLSR_GW;
 		}
@@ -265,7 +261,7 @@ static int parse_olsr_packet(unsigned char* buf, size_t len, struct uwifi_packet
 
 static int parse_batman_packet(__attribute__((unused)) unsigned char* buf,
 			       __attribute__((unused)) size_t len,
-			       __attribute__((unused)) struct uwifi_packet* p)
+			       __attribute__((unused)) struct packet_info* p)
 {
 	p->pkt_types |= PKT_TYPE_BATMAN;
 	return 0;
@@ -273,7 +269,7 @@ static int parse_batman_packet(__attribute__((unused)) unsigned char* buf,
 
 static int parse_meshcruzer_packet(__attribute__((unused)) unsigned char* buf,
 				   __attribute__((unused)) size_t len,
-				   __attribute__((unused)) struct uwifi_packet* p,
+				   __attribute__((unused)) struct packet_info* p,
 				   __attribute__((unused)) int port)
 {
 	p->pkt_types |= PKT_TYPE_MESHZ;

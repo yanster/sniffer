@@ -21,12 +21,10 @@
 
 #include <stdlib.h>
 
-#include <uwifi/util.h>
-#include <uwifi/wlan_util.h>
-
 #include "display.h"
 #include "main.h"
-#include "hutil.h"
+#include "util.h"
+#include "wlan_util.h"
 
 #define SIGN_POS LINES-17
 #define TYPE_POS SIGN_POS+1
@@ -93,7 +91,7 @@ void update_history_win(WINDOW *win)
 
 		wattron(win, get_packet_type_color(hist.type[i]));
 		mvwprintw(win, TYPE_POS, col, "%c", \
-			wlan_get_packet_type_char(hist.type[i]));
+			get_packet_type_char(hist.type[i]));
 
 		if (hist.retry[i])
 			mvwprintw(win, TYPE_POS+1, col, "r");

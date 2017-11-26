@@ -16,85 +16,108 @@
 # along with this program; if not, write to the Free Software Foundation,
 # Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-NAME = horst
-
 # build options
-DEBUG = 1
-LIBUWIFI_SUBMODULE = 1
+DEBUG=1
+PCAP=0
+WEXT=0
+LIBNL=3.0
+OSX=0
 
-OBJS += conf_options.o
-OBJS += control.o
-OBJS += display-channel.o
-OBJS += display-essid.o
-OBJS += display-filter.o
-OBJS += display-help.o
-OBJS += display-history.o
-OBJS += display-main.o
-OBJS += display-spectrum.o
-OBJS += display-statistics.o
-OBJS += display.o
-OBJS += hutil.o
-OBJS += ieee80211_duration.o
-OBJS += listsort.o
-OBJS += main.o
-OBJS += network.o
-OBJS += protocol_parser.o
+NAME=horst
+OBJS=						   \
+	average.o				   \
+	capture$(if $(filter 1,$(PCAP)),-pcap).o   \
+	channel.o				   \
+	conf_options.o				   \
+	control.o				   \
+	display-channel.o			   \
+	display-essid.o				   \
+	display-filter.o			   \
+	display-help.o				   \
+	display-history.o			   \
+	display-main.o				   \
+	display-spectrum.o			   \
+	display-statistics.o			   \
+	display.o				   \
+	essid.o					   \
+	ieee80211_util.o			   \
+	ifctrl-ioctl.o			   	   \
+	listsort.o				   \
+	main.o					   \
+	network.o				   \
+	node.o					   \
+	protocol_parser.o			   \
+	wlan_parser.o				   \
+	radiotap/radiotap.o			   \
+	util.o					   \
+	hashmap.o					   \
+	wlan_util.o
+LIBS=-lncurses -lm
+CFLAGS+=-std=gnu99 -Wall -Wextra -g -I.
 
-LIBS = -lncurses -lm -luwifi -lcurl
-INCLUDES = -I.
-CFLAGS += -std=gnu99 -Wall -Wextra -g $(INCLUDES) -DVERSION=\"$(shell git describe --tags)\"
-
-INCLUDES += -I./curl
-
-ifeq ($(LIBUWIFI_SUBMODULE),1)
-	INCLUDES += -I./libuwifi/inst/include
-	LDFLAGS += -L./libuwifi
-	UWIFI_DEPEND = libuwifi/libuwifi.so.1
+ifeq ($(OSX),1)
+    PCAP=1
+    WEXT=0
+    LIBNL=0
+    LIBS+=-framework CoreWLAN -framework CoreData -framework Foundation
 endif
 
 ifeq ($(DEBUG),1)
-	CFLAGS += -DDO_DEBUG=1
+  CFLAGS+=-DDO_DEBUG
 endif
 
-DESTDIR ?= /usr/local
+ifeq ($(PCAP),1)
+  CFLAGS+=-DPCAP
+  LIBS+=-lpcap
+endif
+
+ifeq ($(WEXT),1)
+  OBJS += ifctrl-wext.o
+else
+  ifeq ($(LIBNL),0)
+    ifeq ($(OSX),0)
+        OBJS += ifctrl-dummy.o
+    endif
+  else
+    OBJS += ifctrl-nl80211.o
+    CFLAGS += $(shell pkg-config --cflags libnl-$(LIBNL))
+    ifeq ($(LIBNL),tiny)
+      LIBS+=-lnl-tiny
+    else
+      LIBS+=-lnl-3 -lnl-genl-3
+    endif
+  endif
+endif
 
 .PHONY: all check clean force
 
 all: $(NAME)
 
 .objdeps.mk: $(OBJS:%.o=%.c)
-	gcc -MM $(INCLUDES) $^ >$@
+	gcc -MM -I. $^ >$@
+ifeq ($(OSX),1)
+	gcc -MM -I. ifctrl-osx.m >>$@
+endif
 
 -include .objdeps.mk
+
+ifeq ($(OSX),1)
+	OBJS += ifctrl-osx.o
+endif
 
 $(NAME): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
 
-$(OBJS): .buildflags $(UWIFI_DEPEND)
-
-libuwifi/libuwifi.so.1:
-	make -C libuwifi INST_PATH=inst install
+$(OBJS): .buildflags
 
 check:
-	sparse $(CFLAGS)  -D__linux__ *.[ch]
+	sparse $(CFLAGS) *.[ch]
 
 clean:
-	-rm -f *.o *~
+	-rm -f *.o radiotap/*.o *~
 	-rm -f $(NAME)
 	-rm -f .buildflags
 	-rm -f .objdeps.mk
-	-rm -r libuwifi/inst
-	-make -C libuwifi clean
-
-install:
-	mkdir -p $(DESTDIR)/sbin/
-	mkdir -p $(DESTDIR)/etc
-	mkdir -p $(DESTDIR)/man/man8/
-	mkdir -p $(DESTDIR)/man/man5
-	cp horst $(DESTDIR)/sbin/
-	cp horst.conf $(DESTDIR)/etc/
-	gzip horst.8 -c > $(DESTDIR)/man/man8/horst.8.gz
-	gzip horst.conf.5 -c > $(DESTDIR)/man/man5/horst.conf.5.gz
 
 .buildflags: force
 	echo '$(CFLAGS)' | cmp -s - $@ || echo '$(CFLAGS)' > $@

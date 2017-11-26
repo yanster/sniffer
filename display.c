@@ -26,12 +26,11 @@
 #include <signal.h>
 #include <sys/ioctl.h>
 
-#include <uwifi/wlan80211.h>
-#include <uwifi/channel.h>
-#include <uwifi/util.h>
-
+#include "util.h"
 #include "display.h"
 #include "main.h"
+#include "wlan80211.h"
+#include "channel.h"
 
 static WINDOW *conf_win = NULL;
 static WINDOW *show_win = NULL;
@@ -54,14 +53,14 @@ void get_per_second(unsigned long bytes, unsigned long duration,
 	float timediff;
 
 	/* reacalculate only every second or more */
-	timediff = (time_mono.tv_sec + time_mono.tv_nsec/1000000000.0) -
+	timediff = (the_time.tv_sec + the_time.tv_nsec/1000000000.0) -
 		   (last.tv_sec + last.tv_nsec/1000000000.0);
 	if (timediff >= 1.0) {
 		last_dps = (1.0*(duration - last_dur)) / timediff;
 		last_bps = (1.0*(bytes - last_bytes)) / timediff;
 		last_pps = (1.0*(packets - last_pkts)) / timediff;
 		last_rps = (1.0*(retries - last_retr)) / timediff;
-		last = time_mono;
+		last = the_time;
 		last_dur = duration;
 		last_bytes = bytes;
 		last_pkts = packets;
@@ -204,8 +203,8 @@ static void update_mini_status(void)
 	else
 		mvwprintw(stdscr, LINES-1, COLS-29, "| ");
 	mvwprintw(stdscr, LINES-1, COLS-27, "|Ch%03d@%s",
-		uwifi_channel_get_chan(&conf.intf.channels, conf.intf.channel_idx),
-		uwifi_channel_width_string_short(conf.intf.channel.width, uwifi_channel_is_ht40plus(&conf.intf.channel)));
+		channel_get_chan(conf.channel_idx),
+		channel_width_string_short(conf.channel_width, conf.channel_ht40plus));
 
 	wattroff(stdscr, BLACKONWHITE);
 	wnoutrefresh(stdscr);
@@ -235,11 +234,11 @@ static void update_menu(void)
 	}
 #undef KEYMARK
 	mvwprintw(stdscr, LINES-1, COLS-17, "|%7s",
-		  conf.serveraddr[0] != '\0' ? conf.serveraddr : conf.intf.ifname);
+		  conf.serveraddr[0] != '\0' ? conf.serveraddr : conf.ifname);
 	wattroff(stdscr, BLACKONWHITE);
 
 	update_mini_status();
-	update_clock(&time_real.tv_sec);
+	update_clock(&the_time.tv_sec);
 }
 
 /******************* WINDOW MANAGEMENT / UPDATE *******************/
@@ -306,32 +305,26 @@ static void show_conf_window(int key)
 void update_display_clock(void)
 {
 	/* helper to update just the clock every second */
-	if (time_mono.tv_sec > last_time.tv_sec) {
-		update_clock(&time_real.tv_sec);
+	if (the_time.tv_sec > last_time.tv_sec) {
+		update_clock(&the_time.tv_sec);
 		doupdate();
 	}
 }
 
-void display_log(int level, const char *string)
+void display_log(const char *string)
 {
-	int color;
-	switch (level) {
-		case LOG_ERR: color = RED; break;
-		case LOG_DEBUG: color = WHITE; break;
-		default: color = YELLOW; break;
-	}
-	print_dump_win(string, color, show_win == NULL);
+	print_dump_win(string, show_win == NULL);
 }
 
-void update_display(struct uwifi_packet* pkt)
+void update_display(struct packet_info* pkt)
 {
 	/*
 	 * update only in specific intervals to save CPU time
 	 * if pkt is NULL we want to force an update
 	 */
 	if (pkt != NULL &&
-	    time_mono.tv_sec == last_time.tv_sec &&
-	    (time_mono.tv_nsec - last_time.tv_nsec) / 1000 < conf.display_interval ) {
+	    the_time.tv_sec == last_time.tv_sec &&
+	    (the_time.tv_nsec - last_time.tv_nsec) / 1000 < conf.display_interval ) {
 		/* just add the line to dump win so we don't loose it */
 		update_dump_win(pkt);
 		return;
@@ -345,10 +338,10 @@ void update_display(struct uwifi_packet* pkt)
 	update_menu();
 
 	/* update clock every second */
-	if (time_mono.tv_sec > last_time.tv_sec)
-		update_clock(&time_real.tv_sec);
+	if (the_time.tv_sec > last_time.tv_sec)
+		update_clock(&the_time.tv_sec);
 
-	last_time = time_mono;
+	last_time = the_time;
 
 	if (show_win != NULL)
 		update_show_win();

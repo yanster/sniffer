@@ -27,10 +27,9 @@
 #include <errno.h>
 #include <err.h>
 
-#include <uwifi/util.h>
-#include <uwifi/channel.h>
-
 #include "main.h"
+#include "util.h"
+#include "channel.h"
 #include "network.h"
 #include "display.h"
 
@@ -40,7 +39,7 @@ int srv_fd = -1;
 int cli_fd = -1;
 static int netmon_fd;
 
-#define PROTO_VERSION	4
+#define PROTO_VERSION	3
 
 enum pkt_type {
 	PROTO_PKT_INFO		= 0,
@@ -59,21 +58,21 @@ struct net_conf_chan {
 
 	unsigned char do_change;
 	unsigned char upper;
-	int dwell_time;
+	char channel;
 
-	/* channel */
-	unsigned int freq;
-	unsigned int center_freq;
-	unsigned char width;
+#define NET_WIDTH_HT40PLUS	0x80
+	unsigned char width_ht40p;	// use upper bit for HT40+-
+
+	int dwell_time;
 
 } __attribute__ ((packed));
 
 struct net_conf_filter {
 	struct net_header	proto;
 
-	unsigned char	filtermac[MAX_FILTERMAC][WLAN_MAC_LEN];
+	unsigned char	filtermac[MAX_FILTERMAC][MAC_LEN];
 	char		filtermac_enabled[MAX_FILTERMAC];
-	unsigned char	filterbssid[WLAN_MAC_LEN];
+	unsigned char	filterbssid[MAC_LEN];
 	uint16_t	filter_stype[WLAN_NUM_TYPES];
 	int		filter_pkt;
 	int		filter_mode;
@@ -119,9 +118,9 @@ struct net_packet_info {
 	/* wlan mac */
 	unsigned int		wlan_len;	/* packet length */
 	unsigned int		wlan_type;	/* frame control field */
-	unsigned char		wlan_src[WLAN_MAC_LEN];
-	unsigned char		wlan_dst[WLAN_MAC_LEN];
-	unsigned char		wlan_bssid[WLAN_MAC_LEN];
+	unsigned char		wlan_src[MAC_LEN];
+	unsigned char		wlan_dst[MAC_LEN];
+	unsigned char		wlan_bssid[MAC_LEN];
 	char			wlan_essid[WLAN_MAX_SSID_LEN];
 	uint64_t		wlan_tsf;	/* timestamp from beacon */
 	unsigned int		wlan_bintval;	/* beacon interval */
@@ -162,23 +161,23 @@ static bool net_write(int fd, unsigned char* buf, size_t len)
 	ret = write(fd, buf, len);
 	if (ret == -1) {
 		if (errno == EPIPE) {
-			printlog(LOG_INFO, "Client has closed");
+			printlog("Client has closed");
 			close(fd);
 			if (fd == cli_fd)
 				cli_fd = -1;
 			net_init_server_socket(conf.port);
 		}
 		else
-			printlog(LOG_ERR, "ERROR: in net_write");
+			printlog("ERROR: in net_write");
 		return false;
 	}
 	return true;
 }
 
-void net_send_packet(struct uwifi_packet *p)
+void net_send_packet(struct packet_info *p)
 {
 	struct net_packet_info np;
-	/*
+
 	np.proto.version = PROTO_VERSION;
 	np.proto.type	= PROTO_PKT_INFO;
 
@@ -192,9 +191,9 @@ void net_send_packet(struct uwifi_packet *p)
 	np.phy_flags	= htole32(p->phy_flags);
 	np.wlan_len	= htole32(p->wlan_len);
 	np.wlan_type	= htole32(p->wlan_type);
-	memcpy(np.wlan_src, p->wlan_src, WLAN_MAC_LEN);
-	memcpy(np.wlan_dst, p->wlan_dst, WLAN_MAC_LEN);
-	memcpy(np.wlan_bssid, p->wlan_bssid, WLAN_MAC_LEN);
+	memcpy(np.wlan_src, p->wlan_src, MAC_LEN);
+	memcpy(np.wlan_dst, p->wlan_dst, MAC_LEN);
+	memcpy(np.wlan_bssid, p->wlan_bssid, MAC_LEN);
 	memcpy(np.wlan_essid, p->wlan_essid, WLAN_MAX_SSID_LEN);
 	np.wlan_tsf	= htole64(p->wlan_tsf);
 	np.wlan_bintval	= htole32(p->wlan_bintval);
@@ -228,17 +227,14 @@ void net_send_packet(struct uwifi_packet *p)
 	if (p->bat_gw)
 		np.bat_flags |= PKT_BAT_FLAG_GW;
 	np.bat_pkt_type = p->bat_packet_type;
-	*/
-	memcpy(np.wlan_src, p->wlan_src, WLAN_MAC_LEN);
-	memcpy(np.wlan_dst, p->wlan_dst, WLAN_MAC_LEN);
-	
+
 	net_write(cli_fd, (unsigned char *)&np, sizeof(np));
 }
 
 static int net_receive_packet(unsigned char *buffer, size_t len)
 {
 	struct net_packet_info *np;
-	struct uwifi_packet p;
+	struct packet_info p;
 
 	if (len < sizeof(struct net_packet_info))
 		return 0;
@@ -261,9 +257,9 @@ static int net_receive_packet(unsigned char *buffer, size_t len)
 	p.phy_flags	= le32toh(np->phy_flags);
 	p.wlan_len	= le32toh(np->wlan_len);
 	p.wlan_type	= le32toh(np->wlan_type);
-	memcpy(p.wlan_src, np->wlan_src, WLAN_MAC_LEN);
-	memcpy(p.wlan_dst, np->wlan_dst, WLAN_MAC_LEN);
-	memcpy(p.wlan_bssid, np->wlan_bssid, WLAN_MAC_LEN);
+	memcpy(p.wlan_src, np->wlan_src, MAC_LEN);
+	memcpy(p.wlan_dst, np->wlan_dst, MAC_LEN);
+	memcpy(p.wlan_bssid, np->wlan_bssid, MAC_LEN);
 	memcpy(p.wlan_essid, np->wlan_essid, WLAN_MAX_SSID_LEN);
 	p.wlan_tsf	= le64toh(np->wlan_tsf);
 	p.wlan_bintval	= le32toh(np->wlan_bintval);
@@ -307,13 +303,14 @@ static void net_send_conf_chan(int fd)
 
 	nc.proto.version = PROTO_VERSION;
 	nc.proto.type	= PROTO_CONF_CHAN;
-	nc.do_change = conf.intf.channel_scan;
-	nc.upper = conf.intf.channel_max;
-	nc.dwell_time = htole32(conf.intf.channel_time);
+	nc.do_change = conf.do_change_channel;
+	nc.upper = conf.channel_max;
+	nc.channel = conf.channel_idx;
+	nc.width_ht40p = conf.channel_width;
+	if (conf.channel_ht40plus)
+			nc.width_ht40p |= NET_WIDTH_HT40PLUS;
 
-	nc.freq = conf.intf.channel.freq;
-	nc.center_freq = conf.intf.channel.center_freq;
-	nc.width = conf.intf.channel.width;
+	nc.dwell_time = htole32(conf.channel_time);
 
 	net_write(fd, (unsigned char *)&nc, sizeof(nc));
 }
@@ -326,31 +323,34 @@ static int net_receive_conf_chan(unsigned char *buffer, size_t len)
 		return 0;
 
 	nc = (struct net_conf_chan *)buffer;
-	conf.intf.channel_scan = nc->do_change;
-	conf.intf.channel_max = nc->upper;
-	conf.intf.channel_time = le32toh(nc->dwell_time);
+	conf.do_change_channel = nc->do_change;
+	conf.channel_max = nc->upper;
+	conf.channel_time = le32toh(nc->dwell_time);
 
-	struct uwifi_chan_spec ch;
-	ch.freq = nc->freq;
-	ch.center_freq = nc->center_freq;
-	ch.width = nc->width;
+	enum chan_width width = nc->width_ht40p & ~NET_WIDTH_HT40PLUS;
+	bool ht40p = !!(nc->width_ht40p & NET_WIDTH_HT40PLUS);
 
-	if (conf.intf.channel.freq != ch.freq ||
-	    conf.intf.channel.center_freq != ch.center_freq ||
-	    conf.intf.channel.width != ch.width) { /* something changed */
+	if (nc->channel != conf.channel_idx ||
+	    width != conf.channel_width ||
+	    ht40p != conf.channel_ht40plus) { /* something changed */
 		if (cli_fd > -1) { /* server */
-			if (!uwifi_channel_change(&conf.intf, &ch)) {
-				printlog(LOG_ERR, "Net Channel %s is not available/allowed",
-					uwifi_channel_get_string(&ch));
+			if (!channel_change(nc->channel, width, ht40p)) {
+				printlog("Net Channel %d %s is not available/allowed",
+					channel_get_chan(nc->channel),
+					channel_width_string(width, ht40p));
 				net_send_channel_config();
 			} else {
 				/* success: update UI */
-				conf.intf.channel_set = ch;
+				conf.channel_set_num = channel_get_chan(nc->channel);
+				conf.channel_set_width = width;
+				conf.channel_set_ht40plus = ht40p;
 				update_display(NULL);
 			}
 		} else { /* client */
-			conf.intf.channel_idx = uwifi_channel_idx_from_freq(&conf.intf.channels, ch.freq);
-			conf.intf.channel = conf.intf.channel_set = ch;
+			conf.channel_idx = nc->channel;
+			conf.channel_width = conf.channel_set_width = width;
+			conf.channel_ht40plus = conf.channel_set_ht40plus = ht40p;
+			conf.channel_set_num = channel_get_chan(nc->channel);
 			update_spectrum_durations();
 			update_display(NULL);
 		}
@@ -368,7 +368,7 @@ static void net_send_conf_filter(int fd)
 	nc.proto.type = PROTO_CONF_FILTER;
 
 	for (i = 0; i < MAX_FILTERMAC; i++) {
-		memcpy(nc.filtermac[i], conf.filtermac[i], WLAN_MAC_LEN);
+		memcpy(nc.filtermac[i], conf.filtermac[i], MAC_LEN);
 		nc.filtermac_enabled[i] = conf.filtermac_enabled[i];
 	}
 
@@ -376,7 +376,7 @@ static void net_send_conf_filter(int fd)
 		nc.filter_stype[i] = htons(conf.filter_stype[i]);
 	}
 
-	memcpy(nc.filterbssid, conf.filterbssid, WLAN_MAC_LEN);
+	memcpy(nc.filterbssid, conf.filterbssid, MAC_LEN);
 	nc.filter_pkt = htole32(conf.filter_pkt);
 	nc.filter_mode = htole32(conf.filter_mode);
 	nc.filter_flags = 0;
@@ -399,7 +399,7 @@ static int net_receive_conf_filter(unsigned char *buffer, size_t len)
 	nc = (struct net_conf_filter *)buffer;
 
 	for (i = 0; i < MAX_FILTERMAC; i++) {
-		memcpy(conf.filtermac[i], nc->filtermac[i], WLAN_MAC_LEN);
+		memcpy(conf.filtermac[i], nc->filtermac[i], MAC_LEN);
 		conf.filtermac_enabled[i] = nc->filtermac_enabled[i];
 	}
 
@@ -407,7 +407,7 @@ static int net_receive_conf_filter(unsigned char *buffer, size_t len)
 		conf.filter_stype[i] = ntohs(nc->filter_stype[i]);
 	}
 
-	memcpy(conf.filterbssid, nc->filterbssid, WLAN_MAC_LEN);
+	memcpy(conf.filterbssid, nc->filterbssid, MAC_LEN);
 	conf.filter_pkt = le32toh(nc->filter_pkt);
 	conf.filter_mode = le32toh(nc->filter_mode);
 	conf.filter_off = !!(nc->filter_flags & NET_FILTER_OFF);
@@ -423,7 +423,7 @@ static void net_send_chan_list(int fd)
 	int i;
 
 	buf = malloc(sizeof(struct net_chan_list) +
-		     sizeof(unsigned int) * (uwifi_channel_get_num_channels(&conf.intf.channels) - 1));
+		     sizeof(unsigned int) * (channel_get_num_channels() - 1));
 	if (buf == NULL)
 		return;
 
@@ -431,18 +431,18 @@ static void net_send_chan_list(int fd)
 	nc->proto.version = PROTO_VERSION;
 	nc->proto.type	= PROTO_CHAN_LIST;
 
-	nc->num_bands = uwifi_channel_get_num_bands(&conf.intf.channels);
+	nc->num_bands = channel_get_num_bands();
 	for (i = 0; i < nc->num_bands; i++) {
-		const struct uwifi_band* bp = uwifi_channel_get_band(&conf.intf.channels, i);
+		const struct band_info* bp = channel_get_band(i);
 		nc->band[i].num_chans = bp->num_channels;
 		nc->band[i].max_width = bp->max_chan_width;
 		nc->band[i].streams_rx = bp->streams_rx;
 		nc->band[i].streams_tx = bp->streams_tx;
 	}
 
-	for (i = 0; i < uwifi_channel_get_num_channels(&conf.intf.channels); i++) {
-		nc->freq[i] = htole32(uwifi_channel_get_freq(&conf.intf.channels, i));
-		DBG_PRINT("NET send freq %d %d\n", i, uwifi_channel_get_freq(&conf.intf.channels, i));
+	for (i = 0; i < channel_get_num_channels(); i++) {
+		nc->freq[i] = htole32(channel_get_freq(i));
+		DEBUG("NET send freq %d %d\n", i, channel_get_freq(i));
 	}
 
 	net_write(fd, (unsigned char *)buf, sizeof(struct net_chan_list) +
@@ -461,7 +461,7 @@ static int net_receive_chan_list(unsigned char *buffer, size_t len)
 	nc = (struct net_chan_list *)buffer;
 
 	for (int i = 0; i < nc->num_bands; i++) {
-		uwifi_channel_band_add(&conf.intf.channels, nc->band[i].num_chans, nc->band[i].max_width,
+		channel_band_add(nc->band[i].num_chans, nc->band[i].max_width,
 				 nc->band[i].streams_rx, nc->band[i].streams_tx);
 		num_chans += nc->band[i].num_chans;
 	}
@@ -470,8 +470,8 @@ static int net_receive_chan_list(unsigned char *buffer, size_t len)
 		return 0;
 
 	for (int i = 0; i < num_chans; i++) {
-		uwifi_channel_list_add(&conf.intf.channels, le32toh(nc->freq[i]));
-		DBG_PRINT("NET recv freq %d %d\n", i, le32toh(nc->freq[i]));
+		channel_list_add(le32toh(nc->freq[i]));
+		DEBUG("NET recv freq %d %d\n", i, le32toh(nc->freq[i]));
 	}
 	init_spectrum();
 	return sizeof(struct net_chan_list) + sizeof(unsigned int) * (num_chans - 1);
@@ -482,7 +482,7 @@ static int try_receive_packet(unsigned char* buf, size_t len)
 	struct net_header *nh = (struct net_header *)buf;
 
 	if (nh->version != PROTO_VERSION) {
-		printlog(LOG_ERR, "ERROR: protocol version %x", nh->version);
+		printlog("ERROR: protocol version %x", nh->version);
 		return 0;
 	}
 
@@ -500,7 +500,7 @@ static int try_receive_packet(unsigned char* buf, size_t len)
 		len = net_receive_conf_filter(buf, len);
 		break;
 	default:
-		printlog(LOG_ERR, "ERROR: unknown net packet type");
+		printlog("ERROR: unknown net packet type");
 		len = 0;
 	}
 
@@ -539,7 +539,7 @@ void net_handle_server_conn(void)
 	memset(&cin, 0, sizeof(struct sockaddr_in));
 	cli_fd = accept(srv_fd, (struct sockaddr*)&cin, &cinlen);
 
-	printlog(LOG_INFO, "Accepting client");
+	printlog("Accepting client");
 
 	/* send initial config */
 	net_send_chan_list(cli_fd);
@@ -556,7 +556,7 @@ void net_init_server_socket(int rport)
 	struct sockaddr_in sock_in;
 	int reuse = 1;
 
-	printlog(LOG_INFO, "Initializing server port %d", rport);
+	printlog("Initializing server port %d", rport);
 
 	memset(&sock_in, 0, sizeof(struct sockaddr_in));
 	sock_in.sin_family = AF_INET;
@@ -585,7 +585,7 @@ int net_open_client_socket(char* serveraddr, int rport)
 
 	snprintf(rport_str, 20, "%d", rport);
 
-	printlog(LOG_INFO, "Connecting to server %s port %s", serveraddr, rport_str);
+	printlog("Connecting to server %s port %s", serveraddr, rport_str);
 
 	/* Obtain address(es) matching host/port */
 	memset(&saddr, 0, sizeof(struct addrinfo));
@@ -621,7 +621,7 @@ int net_open_client_socket(char* serveraddr, int rport)
 
 	freeaddrinfo(result);
 
-	printlog(LOG_INFO, "Connected to server %s", serveraddr);
+	printlog("Connected to server %s", serveraddr);
 	return netmon_fd;
 }
 

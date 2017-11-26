@@ -22,18 +22,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <uwifi/wlan80211.h>
-#include <uwifi/wlan_util.h>
-#include <uwifi/channel.h>
-#include <uwifi/node.h>
-#include <uwifi/essid.h>
-
 #include "display.h"
 #include "main.h"
-#include "hutil.h"
+#include "util.h"
+#include "wlan80211.h"
+#include "wlan_util.h"
 #include "olsr_header.h"
 #include "batman_adv_header-14.h"
 #include "listsort.h"
+#include "channel.h"
 
 static WINDOW *sort_win = NULL;
 static WINDOW *dump_win = NULL;
@@ -53,11 +50,11 @@ static struct ewma bpsn_avg;
 
 /******************* UTIL *******************/
 
-void print_dump_win(const char *str, int color, bool refresh)
+void print_dump_win(const char *str, int refresh)
 {
-	wattron(dump_win, color);
+	wattron(dump_win, RED);
 	wprintw(dump_win, str);
-	wattroff(dump_win, color);
+	wattroff(dump_win, RED);
 	if (refresh)
 		wrefresh(dump_win);
 	else
@@ -68,12 +65,12 @@ void print_dump_win(const char *str, int color, bool refresh)
 
 static int compare_nodes_signal(const struct list_node *p1, const struct list_node *p2)
 {
-	struct uwifi_node* n1 = list_entry(p1, struct uwifi_node, list);
-	struct uwifi_node* n2 = list_entry(p2, struct uwifi_node, list);
+	struct node_info* n1 = list_entry(p1, struct node_info, list);
+	struct node_info* n2 = list_entry(p2, struct node_info, list);
 
-	if (n1->phy_sig_last > n2->phy_sig_last)
+	if (n1->last_pkt.phy_signal > n2->last_pkt.phy_signal)
 		return -1;
-	else if (n1->phy_sig_last == n2->phy_sig_last)
+	else if (n1->last_pkt.phy_signal == n2->last_pkt.phy_signal)
 		return 0;
 	else
 		return 1;
@@ -81,8 +78,8 @@ static int compare_nodes_signal(const struct list_node *p1, const struct list_no
 
 static int compare_nodes_time(const struct list_node *p1, const struct list_node *p2)
 {
-	struct uwifi_node* n1 = list_entry(p1, struct uwifi_node, list);
-	struct uwifi_node* n2 = list_entry(p2, struct uwifi_node, list);
+	struct node_info* n1 = list_entry(p1, struct node_info, list);
+	struct node_info* n2 = list_entry(p2, struct node_info, list);
 
 	if (n1->last_seen > n2->last_seen)
 		return -1;
@@ -94,8 +91,8 @@ static int compare_nodes_time(const struct list_node *p1, const struct list_node
 
 static int compare_nodes_channel(const struct list_node *p1, const struct list_node *p2)
 {
-	struct uwifi_node* n1 = list_entry(p1, struct uwifi_node, list);
-	struct uwifi_node* n2 = list_entry(p2, struct uwifi_node, list);
+	struct node_info* n1 = list_entry(p1, struct node_info, list);
+	struct node_info* n2 = list_entry(p2, struct node_info, list);
 
 	if (n1->wlan_channel < n2->wlan_channel)
 		return 1;
@@ -107,10 +104,10 @@ static int compare_nodes_channel(const struct list_node *p1, const struct list_n
 
 static int compare_nodes_bssid(const struct list_node *p1, const struct list_node *p2)
 {
-	struct uwifi_node* n1 = list_entry(p1, struct uwifi_node, list);
-	struct uwifi_node* n2 = list_entry(p2, struct uwifi_node, list);
+	struct node_info* n1 = list_entry(p1, struct node_info, list);
+	struct node_info* n2 = list_entry(p2, struct node_info, list);
 
-	return -memcmp(n1->wlan_bssid, n2->wlan_bssid, WLAN_MAC_LEN);
+	return -memcmp(n1->wlan_bssid, n2->wlan_bssid, MAC_LEN);
 }
 
 static bool sort_input(int c)
@@ -156,7 +153,7 @@ static void show_sort_win(void)
 #define STAT_WIDTH 11
 #define STAT_START 4
 
-static void update_status_win(struct uwifi_packet* p)
+static void update_status_win(struct packet_info* p)
 {
 	int sig, siga, bps, dps, pps, rps, bpsn, usen;
 	float use, rpsp = 0.0;
@@ -172,7 +169,7 @@ static void update_status_win(struct uwifi_packet* p)
 	get_per_second(stats.bytes, stats.duration, stats.packets, stats.retries,
 		       &bps, &dps, &pps, &rps);
 	bps *= 8;
-	bpsn = normalize(bps, conf.intf.max_phy_rate * 100000 / 3 * 2, max_stat_bar);
+	bpsn = normalize(bps, conf.max_phy_rate * 100000 / 3 * 2, max_stat_bar);
 
 	use = dps * 1.0 / 10000; /* usec, in percent */
 	usen = normalize(use, 100, max_stat_bar);
@@ -231,13 +228,14 @@ static void update_status_win(struct uwifi_packet* p)
 
 static char spin[4] = {'/', '-', '\\', '|'};
 
-static void print_node_list_line(int line, struct uwifi_node* n)
+static void print_node_list_line(int line, struct node_info* n)
 {
+	struct packet_info* p = &n->last_pkt;
 	char* ssid = NULL;
 
 	if (n->pkt_types & PKT_TYPE_OLSR)
 		wattron(list_win, GREEN);
-	if (n->last_seen > (time_mono.tv_sec - conf.node_timeout / 2))
+	if (n->last_seen > (the_time.tv_sec - conf.node_timeout / 2))
 		wattron(list_win, A_BOLD);
 	else
 		wattron(list_win, A_NORMAL);
@@ -255,14 +253,14 @@ static void print_node_list_line(int line, struct uwifi_node* n)
 		mvwprintw(list_win, line, COL_CHAN, "%3d", n->wlan_channel );
 
 	mvwprintw(list_win, line, COL_SIG, "%3d", -ewma_read(&n->phy_sig_avg));
-	mvwprintw(list_win, line, COL_RATE, "%3d", n->phy_rate_last/10);
-	mvwprintw(list_win, line, COL_SOURCE, "%-17s", mac_name_lookup(n->wlan_src, 0));
+	mvwprintw(list_win, line, COL_RATE, "%3d", p->phy_rate/10);
+	mvwprintw(list_win, line, COL_SOURCE, "%-17s", mac_name_lookup(p->wlan_src, 0));
 
 	mvwprintw(list_win, line, COL_WIDTH, "%-2s %-3s",
-		wlan_80211std_string(n->wlan_chan_width, n->wlan_channel),
+		get_80211std(n->wlan_chan_width, n->wlan_channel),
 		(n->wlan_chan_width == CHAN_WIDTH_UNSPEC ||
 		 n->wlan_chan_width == CHAN_WIDTH_20_NOHT) ? "20" :
-		uwifi_channel_width_string_short(n->wlan_chan_width, n->wlan_ht40plus));
+		channel_width_string_short(n->wlan_chan_width, n->wlan_ht40plus));
 
 	if (n->wlan_rx_streams)
 		wprintw(list_win, " %dx%d", n->wlan_tx_streams, n->wlan_rx_streams);
@@ -285,8 +283,7 @@ static void print_node_list_line(int line, struct uwifi_node* n)
 	}
 	if (n->wlan_mode & WLAN_MODE_PROBE) {
 		wprintw(list_win, " PR");
-		if (n->essid != NULL)
-			ssid = n->essid->essid;
+		ssid = p->wlan_essid;
 	}
 	if (n->wlan_mode & WLAN_MODE_4ADDR) {
 			wprintw(list_win, " 4A");
@@ -326,7 +323,7 @@ static void print_node_list_line(int line, struct uwifi_node* n)
 
 static void update_node_list_win(void)
 {
-	struct uwifi_node* n;
+	struct node_info* n;
 	int line = 0;
 
 	werase(list_win);
@@ -352,9 +349,9 @@ static void update_node_list_win(void)
 	mvwprintw(list_win, win_split - 1, COLS-10, "LiveStatus");
 
 	if (sortfunc)
-		listsort(&conf.intf.wlan_nodes.n, sortfunc);
+		listsort(&nodes.n, sortfunc);
 
-	list_for_each(&conf.intf.wlan_nodes, n, list) {
+	list_for_each(&nodes, n, list) {
 		if (conf.filter_mode != 0 && (n->wlan_mode & conf.filter_mode) == 0)
 			continue;
 		line++;
@@ -375,7 +372,7 @@ static void update_node_list_win(void)
 	wnoutrefresh(list_win);
 }
 
-void update_dump_win(struct uwifi_packet* p)
+void update_dump_win(struct packet_info* p)
 {
 	if (!p) {
 		redrawwin(dump_win);
@@ -395,7 +392,7 @@ void update_dump_win(struct uwifi_packet* p)
 	wprintw(dump_win, "%03d ", p->phy_signal);
 	wprintw(dump_win, "%3d ", p->phy_rate/10);
 	wprintw(dump_win, "%-17s ", mac_name_lookup(p->wlan_src, 0));
-	wprintw(dump_win, "(" MAC_FMT ") ", MAC_PAR(p->wlan_bssid));
+	wprintw(dump_win, "(%s) ", ether_sprintf(p->wlan_bssid));
 
 	if (p->phy_flags & PHY_FLAG_BADFCS) {
 		wprintw(dump_win, "*BADFCS* ");
@@ -458,7 +455,7 @@ void update_dump_win(struct uwifi_packet* p)
 		wprintw(dump_win, "%-7s", "ARP", ip_sprintf(p->ip_src));
 	}
 	else {
-		wprintw(dump_win, "%-7s", wlan_get_packet_type_name(p->wlan_type));
+		wprintw(dump_win, "%-7s", get_packet_type_name(p->wlan_type));
 
 		switch (p->wlan_type) {
 		case WLAN_FRAME_DATA:
@@ -496,7 +493,7 @@ void update_dump_win(struct uwifi_packet* p)
 	wattroff(dump_win, A_BOLD);
 }
 
-void update_main_win(struct uwifi_packet *p)
+void update_main_win(struct packet_info *p)
 {
 	update_node_list_win();
 	update_status_win(p);

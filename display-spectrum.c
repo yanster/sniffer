@@ -21,12 +21,9 @@
 
 #include <stdlib.h>
 
-#include <uwifi/util.h>
-#include <uwifi/node.h>
-
 #include "display.h"
 #include "main.h"
-#include "hutil.h"
+#include "util.h"
 
 #define CH_SPACE	6
 #define SPEC_POS_Y	1
@@ -67,9 +64,9 @@ void update_spectrum_win(WINDOW *win)
 	}
 	wattroff(win, GREEN);
 
-	for (i = 0; i < uwifi_channel_get_num_channels(&conf.intf.channels) && SPEC_POS_X + CH_SPACE*i+4 < COLS; i++) {
+	for (i = 0; i < channel_get_num_channels() && SPEC_POS_X + CH_SPACE*i+4 < COLS; i++) {
 		mvwprintw(win, SPEC_HEIGHT + 2, SPEC_POS_X + CH_SPACE*i,
-			  "%02d", uwifi_channel_get_chan(&conf.intf.channels, i));
+			  "%02d", channel_get_chan(i));
 		wattron(win, GREEN);
 		mvwprintw(win,  SPEC_HEIGHT + 3, SPEC_POS_X + CH_SPACE*i, "%d",
 			  spectrum[i].signal);
@@ -92,7 +89,7 @@ void update_spectrum_win(WINDOW *win)
 		}
 
 		/* usage in percent */
-		use = (spectrum[i].durations_last * 100.0) / conf.intf.channel_time;
+		use = (spectrum[i].durations_last * 100.0) / conf.channel_time;
 		wattron(win, YELLOW);
 		mvwprintw(win, SPEC_HEIGHT + 5, SPEC_POS_X + CH_SPACE*i, "%d", use);
 		wattroff(win, YELLOW);
@@ -110,7 +107,7 @@ void update_spectrum_win(WINDOW *win)
 					id = ip_sprintf_short(cn->node->ip_src);
 				}
 				else
-					id = mac_name_lookup(cn->node->wlan_src, 1);
+					id = mac_name_lookup(cn->node->last_pkt.wlan_src, 1);
 				mvwprintw(win, SPEC_POS_Y + sig,
 					SPEC_POS_X + CH_SPACE*i + 1, "%s", id);
 				if (cn->node->ip_src)
@@ -131,7 +128,7 @@ void update_spectrum_win(WINDOW *win)
 			usen = normalize(use, 100, SPEC_HEIGHT);
 
 			use = (ewma_read(&spectrum[i].durations_avg) * 100.0)
-				/ conf.intf.channel_time;
+				/ conf.channel_time;
 			usean = normalize(use, 100, SPEC_HEIGHT);
 
 			general_average_bar(win, usen, usean,

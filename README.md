@@ -43,42 +43,15 @@ problems.
 supports monitor mode. The latest stable version is 5.0 from July 01 2016.
 
 
-## Checkout
+## Building
 
-If you just want to use `horst`, the recommended way is to download the latest
-stable version from https://github.com/br101/horst/releases or to use the
-stable branch:
-
-	git clone -b stable https://github.com/br101/horst
-
-Note: The `master` branch is in heavy restructuring mode right now, as it is
-switching to use `libuwifi` (https://github.com/br101/libuwifi).
-
-The master branch of `horst` builds on `libuwifi` as a git submodule and
-`libuwifi` in turn includes `radiotap` as a submodule. With newer versions of
-git the easiest way to check out is:
-
-	git clone --recursive https://github.com/br101/horst
-
-For older versions of git, or if you have already cloned horst before, you can
-use:
-
-	git submodule update --init --recursive
-
-
-## Dependencies
+	git clone https://github.com/br101/horst
 
 `horst` is just a simple tool, and `libncurses` and header files is the only
 hard requirement. Recently we have added support for `nl80211` via `libnl`, so
-on Linux normally you need `libnl3` + header files as well. On Debian/Ubuntu
-based distros you can install them with:
+normally you need `libnl3` + header files as well.
 
-	sudo apt-get install libncurses5-dev libnl-3-dev libnl-genl-3-dev
-
-
-## Building
-
-Building is normally done with:
+Building is as simple as typing:
 
 	make
 
@@ -88,7 +61,7 @@ If you have an old or proprietary WLAN driver which only knows the deprecated
 	make WEXT=1
 
 To experimentally build using libpcap (note that libpcap on Linux is not
-necessary and not recommended) use (Broken right now!):
+necessary and not recommended) use:
 
 	make PCAP=1
 
@@ -97,33 +70,12 @@ libnl:
 
 	make PCAP=1 LIBNL=0
 
-To build for Mac OSX (Broken right now!):
+To build for Mac OSX:
 
 	make OSX=1
 
 Please note that PCAP and OSX support is not so well tested and some features
 may be missing.
-
-To install (with optional `DESTDIR=/path`):
-
-	make install
-
-
-## Config and other files
-
-`horst` by default reads a config file `/etc/horst.conf`. The location of the file
-can be changed with the `-c file` command line option. See the file itself or
-`man horst.conf` for a description of the options.
-
-You can use `-Mfilename` to define a MAC address to host name mapping file which
-can either be a `dhcp.leases` file or simply contain `MAC-Address<whitesspace>Name`
-one each line.
-
-`-o outfile` can write the packets to a comma separated list file.
-
-`-X[filename]` is not a real file, but allows a control socket named pipe which can
-later be used with `-x command` to send commands in the same format as the options
-in the config file.
 
 
 ## Usage notes
@@ -155,18 +107,18 @@ Usually you have to start `horst` as root:
 To do remote monitoring over the network you can start a server (-q without a 
 user interface), usually on your AP or device with
 
-	horst -i wlan0 -N -q
+	horst -i wlan0 -C -q
 
 and connect a client (only one client is allowed at a time), usually from your 
 PC with
 
-	horst -n IP
+	horst -c IP
 
 Please read the man page for more details about the options, output and 
 abbreviations. It should be be part of your distribution package, but you can 
 read it in the source code locally with:
 
-	man -l horst.8
+	man -l horst.1
 	man -l horst.conf.5
 
 Please contact me if you have any problems or questions. New feature ideas, 

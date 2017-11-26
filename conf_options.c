@@ -22,11 +22,9 @@
 #include <getopt.h>
 #include <err.h>
 
-#include <uwifi/util.h>
-#include <uwifi/wlan_util.h>
-
 #include "main.h"
-#include "hutil.h"
+#include "util.h"
+#include "wlan_util.h"
 #include "control.h"
 #include "conf_options.h"
 
@@ -51,8 +49,14 @@ static bool conf_debug(__attribute__((unused)) const char* value) {
 #endif
 
 static bool conf_interface(const char* value) {
-	strncpy(conf.intf.ifname, value, IF_NAMESIZE);
-	conf.intf.ifname[IF_NAMESIZE] = '\0';
+	strncpy(conf.ifname, value, IF_NAMESIZE);
+	conf.ifname[IF_NAMESIZE] = '\0';
+	return true;
+}
+
+static bool conf_sniffer_ip(const char* value) {
+	strncpy(conf.sniffer_ip, value, 100);
+	conf.sniffer_ip[100] = '\0';
 	return true;
 }
 
@@ -82,7 +86,7 @@ static bool conf_receive_buffer(const char* value) {
 
 static bool conf_channel_set(const char* value) {
 	bool ht40plus = false;
-	enum uwifi_chan_width width = CHAN_WIDTH_20_NOHT;
+	enum chan_width width = CHAN_WIDTH_20_NOHT;
 
 	char* pos = strchr(value, '+');
 	if (pos != NULL) {
@@ -96,27 +100,23 @@ static bool conf_channel_set(const char* value) {
 	}
 
 	int n = atoi(value);
-
-	struct uwifi_chan_spec ch;
-	ch.freq = wlan_chan2freq(n);
-	ch.width = width;
-	ch.center_freq = ch.freq + ht40plus ? 10 : -10;
-
-	if (conf.intf.channel_initialized)
-		uwifi_channel_change(&conf.intf, &ch);
+	if (conf.channel_initialized)
+		channel_change(channel_find_index_from_chan(n), width, ht40plus);
 	else {
 		/* We have not yet initialized the channel module, channel will be
 		* changed in channel_init(). */
-		conf.intf.channel_set = ch;
+		conf.channel_set_num = n;
+		conf.channel_set_width = width;
+		conf.channel_set_ht40plus = ht40plus;
 	}
 	return true;
 }
 
 static bool conf_channel_scan(const char* value) {
 	if (value != NULL && strcmp(value, "0") == 0)
-		conf.intf.channel_scan = 0;
+		conf.do_change_channel = 0;
 	else {
-		conf.intf.channel_scan = 1;
+		conf.do_change_channel = 1;
 		conf.display_view = 's'; // show spectrum view
 	}
 	return true;
@@ -130,17 +130,17 @@ static bool conf_channel_scan(const char* value) {
  * out of scan rounds, it quits.
  */
 static bool conf_channel_scan_rounds(const char* value) {
-	conf.intf.channel_scan_rounds = atoi(value);
+	conf.channel_scan_rounds = atoi(value);
 	return true;
 }
 
 static bool conf_channel_dwell(const char* value) {
-	conf.intf.channel_time = atoi(value) * 1000;
+	conf.channel_time = atoi(value) * 1000;
 	return true;
 }
 
 static bool conf_channel_upper(const char* value) {
-	conf.intf.channel_max = atoi(value);
+	conf.channel_max = atoi(value);
 	return true;
 }
 
@@ -180,6 +180,11 @@ static bool conf_port(const char* value) {
 	return true;
 }
 
+static bool conf_sniffer_port(const char* value) {
+	conf.sniffer_port = atoi(value);
+	return true;
+}
+
 static bool conf_control_pipe(const char* value) {
 	/*
 	 * Here it's a bit difficult because -X is used for two purposes:
@@ -201,7 +206,7 @@ static bool conf_control_pipe(const char* value) {
 static bool conf_filter_mac(const char* value) {
 	static int n;
 	if (n >= MAX_FILTERMAC) {
-		printlog(LOG_ERR, "Can only handle %d MAC filters", MAX_FILTERMAC);
+		printlog("Can only handle %d MAC filters", MAX_FILTERMAC);
 		return false;
 	}
 
@@ -327,6 +332,8 @@ static struct conf_option conf_options[] = {
 	{ 'm', "filter_mode",		1, "ALL",	conf_filter_mode },
 	{ 'f', "filter_packet",		1, "ALL",	conf_filter_pkt },
 	{ 'M', "mac_names",		2, NULL,	conf_mac_names },
+	{ 'S', "sniffer_ip",		0, "dev1.getyfi.com",	conf_sniffer_ip },
+	{ 's', "sniffer_port",		0, "3333",	conf_sniffer_port },
 };
 
 /*
@@ -356,9 +363,9 @@ bool config_handle_option(int c, const char* name, const char* value)
 		     conf_options[i].func != NULL) {
 			if (!conf.quiet) {
 				if (value != NULL)
-					printlog(LOG_INFO, "Set '%s' = '%s'", conf_options[i].name, value);
+					printlog("Set '%s' = '%s'", conf_options[i].name, value);
 				else
-					printlog(LOG_INFO, "Set '%s'", conf_options[i].name);
+					printlog("Set '%s'", conf_options[i].name);
 			}
 			if (value != NULL) {
 				/* split list values and call function multiple times */
@@ -373,7 +380,7 @@ bool config_handle_option(int c, const char* name, const char* value)
 		}
 	}
 	if (name != NULL)
-		printlog(LOG_INFO, "Ignoring unknown config option '%s' = '%s'", name, value);
+		printlog("Ignoring unknown config option '%s' = '%s'", name, value);
 	return false;
 }
 
@@ -387,7 +394,7 @@ static void config_read_file(const char* filename)
 	int linenum = 0;
 
 	if ((fp = fopen(filename, "r")) == NULL) {
-		printlog(LOG_ERR, "Could not open config file '%s'", filename);
+		printlog("Could not open config file '%s'", filename);
 		return;
 	}
 
@@ -402,7 +409,7 @@ static void config_read_file(const char* filename)
 		if (n < 0) { // empty line
 			continue;
 		} else if (n == 0) {
-			printlog(LOG_ERR, "Config file has garbage on line %d, "
+			printlog("Config file has garbage on line %d, "
 				 "ignoring the line.", linenum);
 			continue;
 		} else if (n == 1) { // no value
@@ -448,7 +455,7 @@ static char* config_get_getopt_string(char* buf, size_t maxlen, const char* add)
 		if (pos < maxlen && (maxlen - pos) >= strlen(add))
 			strncat(buf, add, (maxlen - pos));
 		else {
-			printlog(LOG_ERR, "Not enough space for getopt string!");
+			printlog("Not enough space for getopt string!");
 			exit(1);
 		}
 	}
@@ -523,12 +530,11 @@ void config_parse_file_and_cmdline(int argc, char** argv)
 	while ((c = getopt(argc, argv, getopt_str)) > 0) {
 		switch (c) {
 		case 'c':
-			printlog(LOG_INFO, "Using config file '%s'", optarg);
+			printlog("Using config file '%s'", optarg);
 			conf_filename = optarg;
 			break;
 		case 'v':
-			printf("%s using libuwifi %s (build date: %s %s)\n",
-			       VERSION, UWIFI_VERSION, __DATE__, __TIME__);
+			printf("Version %s (build date: %s %s)\n", VERSION, __DATE__, __TIME__);
 			exit(0);
 		case 'h':
 		case '?':

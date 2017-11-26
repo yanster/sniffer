@@ -23,8 +23,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include <uwifi/wlan_parser.h>
+struct packet_info;
 
-bool parse_packet(unsigned char* buf, size_t len, struct uwifi_packet* p);
+bool parse_packet(unsigned char* buf, size_t len, struct packet_info* p);
 
 #endif

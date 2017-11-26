@@ -21,21 +21,16 @@
 
 #include <stdlib.h>
 
-#include <uwifi/node.h>
-#include <uwifi/util.h>
-#include <uwifi/wlan_util.h>
-#include <uwifi/essid.h>
-
 #include "display.h"
 #include "main.h"
-#include "hutil.h"
+#include "util.h"
 
 void update_essid_win(WINDOW *win)
 {
 	int i;
 	int line = 1;
 	struct essid_info* e;
-	struct uwifi_node* n;
+	struct node_info* n;
 
 	werase(win);
 	wattron(win, WHITE);
@@ -64,20 +59,20 @@ void update_essid_win(WINDOW *win)
 			if (line > LINES-3)
 				break;
 
-			if (n->last_seen > (time_mono.tv_sec - conf.node_timeout / 2))
+			if (n->last_seen > (the_time.tv_sec - conf.node_timeout / 2))
 				wattron(win, A_BOLD);
 			else
 				wattroff(win, A_BOLD);
-			mvwprintw(win, line, 3, "%2d. %-4s %-17s", i++,
-				wlan_mode_string(n->wlan_mode),
-				mac_name_lookup(n->wlan_src, 0));
-			wprintw(win, " " MAC_FMT, MAC_PAR(n->wlan_bssid));
+			mvwprintw(win, line, 3, "%2d. %s %-17s", i++,
+				(n->wlan_mode & WLAN_MODE_AP) ? "AP  " : "IBSS",
+				mac_name_lookup(n->last_pkt.wlan_src, 0));
+			wprintw(win, " (%s)", ether_sprintf(n->wlan_bssid));
 			wprintw(win, " %016llx", n->wlan_tsf);
 			wprintw(win, " (%d)", n->wlan_bintval);
 			if (n->wlan_bintval < 1000)
 				wprintw(win, " ");
 			wprintw(win, " %2d", n->wlan_channel);
-			wprintw(win, " %3d", n->phy_sig_last);
+			wprintw(win, " %3d", n->last_pkt.phy_signal);
 			wprintw(win, " %s", n->wlan_wep ? "W" : " ");
 			if (n->pkt_types & PKT_TYPE_IP)
 				wprintw(win, " %s", ip_sprintf(n->ip_src));

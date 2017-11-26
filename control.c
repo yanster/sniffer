@@ -25,6 +25,7 @@
 #include <err.h>
 
 #include "main.h"
+#include "channel.h"
 #include "control.h"
 #include "conf_options.h"
 
@@ -52,7 +53,7 @@ void control_send_command(const char* cmd)
 	}
 
 	while (access(conf.control_pipe, F_OK) < 0) {
-		printlog(LOG_INFO, "Waiting for control pipe '%s'...", conf.control_pipe);
+		printlog("Waiting for control pipe '%s'...", conf.control_pipe);
 		sleep(1);
 	}
 
@@ -70,7 +71,7 @@ void control_send_command(const char* cmd)
 		*pos = '\n';
 	}
 
-	printlog(LOG_INFO, "Sending command: %s", new);
+	printlog("Sending command: %s", new);
 
 	write(ctlpipe, new, len+1);
 	close(ctlpipe);
@@ -82,7 +83,7 @@ static void parse_command(char* in) {
 
 	cmd = strsep(&in, "=");
 	val = in;
-	//printlog(LOG_ERR, "RECV CMD %s VAL %s", cmd, val);
+	//printlog("RECV CMD %s VAL %s", cmd, val);
 
 	/* commands without value */
 
