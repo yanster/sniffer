@@ -815,9 +815,37 @@ static void write_to_server(struct packet_info* p) {
 	 }
  }
 
- void init_sniffer_socker() {
+ int hostname_to_ip(char * hostname , char* ip) {
+	struct hostent *he;
+	struct in_addr **addr_list;
+	int i;
+		
+	if ( (he = gethostbyname( hostname ) ) == NULL) 
+	{
+		// get the host info
+		herror("gethostbyname");
+		return 1;
+	}
 
-	printf("STARTING sniffer to %s:%i \n", conf.sniffer_ip, conf.sniffer_port);
+	addr_list = (struct in_addr **) he->h_addr_list;
+	
+	for(i = 0; addr_list[i] != NULL; i++) 
+	{
+		//Return the first one;
+		strcpy(ip , inet_ntoa(*addr_list[i]) );
+		return 0;
+	}
+	
+	return 1;
+}
+
+ void init_sniffer_socket() {
+
+	char ip[100];
+     
+    hostname_to_ip(conf.sniffer , ip);
+
+	printf("STARTING sniffer to %s (%s):%i \n", conf.sniffer, ip, conf.sniffer_port);
 	
 	if ((sniffer=socket(AF_INET, SOCK_DGRAM, 0))==-1) {
 		printf("socket() failed\n");
@@ -828,7 +856,7 @@ static void write_to_server(struct packet_info* p) {
 	servaddr.sin_port = htons(conf.sniffer_port);
 	memset(servaddr.sin_zero, '\0', sizeof servaddr.sin_zero);  
 
-	if (inet_aton(conf.sniffer_ip, &servaddr.sin_addr)==0) {
+	if (inet_aton(ip, &servaddr.sin_addr)==0) {
 		printf("inet_aton() failed\n");
 		exit(1);
 	} 
@@ -925,7 +953,7 @@ static void write_to_server(struct packet_info* p) {
 			 err(1, "failed to change the initial channel number");
 	 }
 
-	 init_sniffer_socker();
+	 init_sniffer_socket();
 	 
 	 printf("Max PHY rate: %d Mbps\n", conf.max_phy_rate/10);
  

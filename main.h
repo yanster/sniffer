@@ -296,6 +296,7 @@
  struct config {
 	 char			ifname[IF_NAMESIZE + 1];
 	 char			sniffer_ip[100];
+	 char			sniffer[255];
 	 int			sniffer_port;
 	 int			port;
 	 int			quiet;
@@ -347,7 +348,6 @@
 	 unsigned char wlan_src_last[MAC_LEN];
  
  };
- 
  
  extern struct config conf;
  

@@ -60,6 +60,13 @@ static bool conf_sniffer_ip(const char* value) {
 	return true;
 }
 
+static bool conf_sniffer(const char* value) {
+	strncpy(conf.sniffer, value, 255);
+	conf.sniffer[255] = '\0';
+	return true;
+}
+
+
 static bool conf_add_monitor(const char* value) {
 	if (value != NULL && strcmp(value, "0") == 0)
 		conf.add_monitor = 0;
@@ -332,7 +339,8 @@ static struct conf_option conf_options[] = {
 	{ 'm', "filter_mode",		1, "ALL",	conf_filter_mode },
 	{ 'f', "filter_packet",		1, "ALL",	conf_filter_pkt },
 	{ 'M', "mac_names",		2, NULL,	conf_mac_names },
-	{ 'S', "sniffer_ip",		0, "dev1.getyfi.com",	conf_sniffer_ip },
+	{ 'S', "sniffer_ip",		0, "35.185.80.216",	conf_sniffer_ip },
+	{ 'S', "sniffer",		0, "dev1.getyfi.com",	conf_sniffer },
 	{ 's', "sniffer_port",		0, "3333",	conf_sniffer_port },
 };
 
