@@ -960,7 +960,7 @@ static void write_to_redis(struct packet_info* p) {
             printf("Can't allocate redis context\n");
         }
     } else {
-		printf("Redis connection intialized");
+		printf("Redis connection intialized\n");
 	}
  }
 
@@ -968,45 +968,46 @@ static void write_to_redis(struct packet_info* p) {
  int main(int argc, char** argv)
  {
 
+	sigset_t workmask;
+	sigset_t waitmask;
+	struct sigaction sigint_action;
+	struct sigaction sigpipe_action;
+
+	list_head_init(&essids.list);
+	list_head_init(&nodes);
+	init_spectrum();
+
+	config_parse_file_and_cmdline(argc, argv);
+
+	sigint_action.sa_handler = sigint_handler;
+	sigemptyset(&sigint_action.sa_mask);
+	sigint_action.sa_flags = 0;
+	sigaction(SIGINT, &sigint_action, NULL);
+	sigaction(SIGTERM, &sigint_action, NULL);
+	sigaction(SIGHUP, &sigint_action, NULL);
+
+	sigpipe_action.sa_handler = sigpipe_handler;
+	sigaction(SIGPIPE, &sigpipe_action, NULL);
+
+	atexit(exit_handler);
+
+	clock_gettime(CLOCK_MONOTONIC, &stats.stats_time);
+	clock_gettime(CLOCK_MONOTONIC, &time_mono);
+
+	conf.channel_idx = -1;
+
+
+	if (conf.allow_control) {
+		printlog("Allowing control socket '%s'", conf.control_pipe);
+		control_init_pipe();
+	}
+
+	printlog("New version 6");
 	initializeRedis();
-	 
-	 sigset_t workmask;
-	 sigset_t waitmask;
-	 struct sigaction sigint_action;
-	 struct sigaction sigpipe_action;
- 
-	 list_head_init(&essids.list);
-	 list_head_init(&nodes);
-	 init_spectrum();
- 
-	 config_parse_file_and_cmdline(argc, argv);
+	visitors = hashmap_new();
+	devices = hashmap_new();
+	load_mac_database();
 
-
-	 sigint_action.sa_handler = sigint_handler;
-	 sigemptyset(&sigint_action.sa_mask);
-	 sigint_action.sa_flags = 0;
-	 sigaction(SIGINT, &sigint_action, NULL);
-	 sigaction(SIGTERM, &sigint_action, NULL);
-	 sigaction(SIGHUP, &sigint_action, NULL);
- 
-	 sigpipe_action.sa_handler = sigpipe_handler;
-	 sigaction(SIGPIPE, &sigpipe_action, NULL);
- 
-	 atexit(exit_handler);
- 
-	 clock_gettime(CLOCK_MONOTONIC, &stats.stats_time);
-	 clock_gettime(CLOCK_MONOTONIC, &the_time);
-
-
-	 conf.channel_idx = -1;
- 
-	 printlog("New version 5");
-
-
-	 if (conf.allow_control) {
-		 printlog("Allowing control socket '%s'", conf.control_pipe);
-		 control_init_pipe();
-	 }
 	if (conf.serveraddr[0] != '\0')
 		mon = net_open_client_socket(conf.serveraddr, conf.port);
 	else {
@@ -1053,60 +1054,52 @@ static void write_to_redis(struct packet_info* p) {
 			err(1, "failed to change the initial channel number");
 	}
 
+	printf("Max PHY rate: %d Mbps\n", conf.max_phy_rate/10);
 
-	 //init_sniffer_socket();
-	 
-	 printf("Max PHY rate: %d Mbps\n", conf.max_phy_rate/10);
- 
-	 //if (!conf.quiet && !conf.debug)
-	//	 init_display();
- 
-	 //if (conf.serveraddr[0] == '\0' && conf.port && conf.allow_client) 
-		// net_init_server_socket(conf.port);
+	if (!conf.quiet && !conf.debug)
+		init_display();
 
-	 visitors = hashmap_new();
-	 devices = hashmap_new();
+	if (conf.serveraddr[0] == '\0' && conf.port && conf.allow_client)
+		net_init_server_socket(conf.port);
 
-	 load_mac_database();
-	 
-	 /* Race-free signal handling:
-	  *   1. block all handled signals while working (with workmask)
-	  *   2. receive signals *only* while waiting in pselect() (with waitmask)
-	  *   3. switch between these two masks atomically with pselect()
-	  */
-	 if (sigemptyset(&workmask)                       == -1 ||
-		 sigaddset(&workmask, SIGINT)                 == -1 ||
-		 sigaddset(&workmask, SIGHUP)                 == -1 ||
-		 sigaddset(&workmask, SIGTERM)                == -1 ||
-		 sigprocmask(SIG_BLOCK, &workmask, &waitmask) == -1)
-		 err(1, "failed to block signals: %m");
- 
+	/* Race-free signal handling:
+	 *   1. block all handled signals while working (with workmask)
+	 *   2. receive signals *only* while waiting in pselect() (with waitmask)
+	 *   3. switch between these two masks atomically with pselect()
+	 */
+	if (sigemptyset(&workmask)                       == -1 ||
+	    sigaddset(&workmask, SIGINT)                 == -1 ||
+	    sigaddset(&workmask, SIGHUP)                 == -1 ||
+	    sigaddset(&workmask, SIGTERM)                == -1 ||
+	    sigprocmask(SIG_BLOCK, &workmask, &waitmask) == -1)
+		err(1, "failed to block signals: %m");
 
+	while (!conf.do_change_channel || conf.channel_scan_rounds != 0)
+	{
+		receive_any(&waitmask);
 
-	 while (!conf.do_change_channel || conf.channel_scan_rounds != 0)
-	 {
-		 receive_any(&waitmask);
- 
-		 if (is_sigint_caught)
-			 exit(1);
- 
-		 clock_gettime(CLOCK_MONOTONIC, &the_time);
-		 node_timeout();
- 
-		 if (conf.serveraddr[0] == '\0') { /* server */
-			 if (!conf.paused && channel_auto_change()) {
-				 net_send_channel_config();
-				 update_spectrum_durations();
-				 if (!conf.quiet && !conf.debug)
-					 update_display(NULL);
- 
-				 if (channel_get_chan(conf.channel_idx) == conf.channel_set_num
-					 && conf.channel_scan_rounds > 0)
-					 --conf.channel_scan_rounds;
-			 }
-		 }
-	 }
-	 return 0;
+		if (is_sigint_caught)
+			exit(1);
+
+		clock_gettime(CLOCK_MONOTONIC, &time_mono);
+		clock_gettime(CLOCK_REALTIME, &time_real);
+
+		node_timeout();
+
+		if (conf.serveraddr[0] == '\0') { /* server */
+			if (!conf.paused && channel_auto_change()) {
+				net_send_channel_config();
+				update_spectrum_durations();
+				if (!conf.quiet && !conf.debug)
+					update_display(NULL);
+
+				if (channel_get_chan(conf.channel_idx) == conf.channel_set_num
+				    && conf.channel_scan_rounds > 0)
+					--conf.channel_scan_rounds;
+			}
+		}
+	}
+	return 0;
  }
  
  void main_pause(int pause)
