@@ -31,7 +31,8 @@ MQTT_SRC_FILES += $(MQTT_C_DIR)/MQTTClient.c
 
 #glib-2.0
 #GLIB_INCLUDE_DIR = $(shell pkg-config --cflags glib-2.0)
-LD_FLAG += -std=gnu99 -Wall -Wextra -g -I.
+#LD_FLAG +=-std=gnu99 -Wall -Wextra -g -I.
+LD_FLAG += -ldl -lm
 #LD_FLAG += $(shell pkg-config --libs glib-2.0)
 LD_FLAG += $(shell pkg-config --libs libssl)
 LD_FLAG += $(shell pkg-config --libs libcrypto)
