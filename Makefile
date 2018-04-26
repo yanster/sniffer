@@ -94,9 +94,9 @@ endif
 all: $(NAME)
 
 .objdeps.mk: $(OBJS:%.o=%.c)
-	gcc -MM -I. $^ >$@
+	$(CC) -MM -I. $^ >$@
 ifeq ($(OSX),1)
-	gcc -MM -I. ifctrl-osx.m >>$@
+	$(CC) -MM -I. ifctrl-osx.m >>$@
 endif
 
 -include .objdeps.mk
@@ -118,7 +118,6 @@ clean:
 	-rm -f $(NAME)
 	-rm -f .buildflags
 	-rm -f .objdeps.mk
-	#make -f sessions.mk
 
 .buildflags: force
 	echo '$(CFLAGS)' | cmp -s - $@ || echo '$(CFLAGS)' > $@
