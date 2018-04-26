@@ -1,4 +1,4 @@
-# horst - Highly Optimized Radio Scanning Tool
+# getyfi-horst - Highly Optimized Radio Scanning Tool
 #
 # Copyright (C) 2005-2016 Bruno Randolf (br1@einfach.org)
 #
@@ -52,7 +52,7 @@ OBJS=						   \
 	util.o					   \
 	hashmap.o					   \
 	wlan_util.o
-LIBS=-lncurses -lm
+LIBS=-lncurses -lhiredis -lm cJSON.c
 CFLAGS+=-std=gnu99 -Wall -Wextra -g -I.
 
 ifeq ($(OSX),1)

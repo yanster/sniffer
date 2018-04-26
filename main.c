@@ -32,6 +32,13 @@
  #include <arpa/inet.h>
  #include <sys/ioctl.h>
  #include <netdb.h>
+ #include <ctype.h>
+
+ #include <cjson/cJSON.h>
+
+ #include "hiredis/hiredis.h"
+ #include "hiredis/async.h"
+
 
  #include "main.h"
  #include "util.h"
@@ -50,7 +57,6 @@
 
  #define KEY_MAX_LENGTH (256)
  #define KEY_PREFIX ("somekey")
- #define MAC_MANUFACTURER ("/tmp/mac_manufacturers.txt")
  #define MIN_DURATION_BETWEEN_PINGS (5)
  #define KEY_COUNT (2048*2048)
 
@@ -71,6 +77,12 @@
  struct sockaddr_in servaddr;
 
  static FILE* DF = NULL;
+
+ const static char *REDIS_HOST = "127.0.0.1";
+ const static int REDIS_PORT = 6379;
+
+ redisContext *c;
+ redisReply *reply;
  
  //static CURL *curl;
  //static CURLcode res;
@@ -220,44 +232,7 @@
 			  spectrum[conf.channel_idx].durations_last);
 	 }
  }
- /*
- static void write_to_server(struct packet_info* p) {
- 
-	 char nline[256];
-  
-	 if (curl) {
- 
-		 if (memcmp(p->wlan_src, conf.wlan_src_last, MAC_LEN) != 0) {
-)
 
-			struct curl_slist *headers = NULL;
-			headers = curl_slist_append(headers, "Accept: application/json");
-			headers = curl_slist_append(headers, "Content-Type: application/json");
-			headers = curl_slist_append(headers, "charsets: utf-8");
-
-			 snprintf(nline, sizeof(nline), "{ \"type\": \"%s\", \"hotspot\": \"%s\", \"mac\": \"%s\", \"signal\": \"%d\", \"freq\": \"%d\", \"channel\": \"%d\" }",
-				 get_packet_type_name(p->wlan_type), getenv("MAC"), mac_name_lookup(p->wlan_src,0), p->phy_signal, p->phy_freq, p->wlan_channel);
- 
-			 curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-			 curl_easy_setopt(curl, CURLOPT_URL, getenv("SNIFFER_URL"));
-			 curl_easy_setopt(curl, CURLOPT_POSTFIELDS, nline);
-			 curl_easy_setopt(curl, CURLOPT_NOPROGRESS , 1);
-			 
-		 
-			 res = curl_easy_perform(curl);
-
-			 memcpy(conf.wlan_src_last, p->wlan_src, MAC_LEN);
- 
-		 }
-Set 'quiet'
- 
-	 } else {
-		 curl = curl_easy_init();
-	 }
- 
-	 free(nline);
- }
- */
  map_t visitors;
  map_t devices;
 
@@ -282,7 +257,8 @@ Set 'quiet'
 
  typedef struct device_s
  {
-	 char key_string[KEY_MAX_LENGTH];
+	 char key_string[256];
+	 char name[1024];
 	 int pings;
  } device_t;
 
@@ -303,6 +279,130 @@ static void write_to_server(struct packet_info* p) {
 
 	if (sendto(sniffer, nline, strlen(nline), 0, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
 		printlog("Failed to send");
+	}
+
+	return;
+
+}
+
+long long current_timestamp() {
+    struct timeval te; 
+    gettimeofday(&te, NULL); // get current time
+    long long milliseconds = te.tv_sec*1000LL + te.tv_usec/1000; // calculate milliseconds
+    // printf("milliseconds: %lld\n", milliseconds);
+    return milliseconds;
+}
+
+static char * get_manufacturer_name(char *device_mac) {
+	
+	int error;
+	device_t* device;
+	char key[KEY_MAX_LENGTH];
+	memcpy(key, device_mac, 8);
+	key[8] = '\0';
+
+
+	if (hashmap_length(devices) > 0) {
+
+		error = hashmap_get(devices, key, (void**)(&device));
+
+		if (error==MAP_MISSING) 
+			return NULL;
+
+		return device->name;
+
+	}
+
+	return NULL;
+
+}
+
+static void write_to_redis(struct packet_info* p) {
+
+	if (c == NULL || c->err) { 
+		return;
+	}
+
+	char hotspot_mac[18];
+	char device_mac[18];
+	bool is_new_session=true;
+
+	snprintf(device_mac, sizeof(device_mac), "%s", mac_name_lookup(p->wlan_src,0));
+	snprintf(hotspot_mac, sizeof(hotspot_mac), "%s", ether_sprintf(conf.my_mac_addr));
+
+
+	char *manufacturer = get_manufacturer_name(device_mac);
+
+	//sprintf("%s", manufacturer);
+	/*
+	snprintf(nline, sizeof(nline), "{ \"type\": \"%s\", \"hotspot\": \"%s\", \"mac\": \"%s\", \"signal\": %d, \"freq\": %d, \"channel\": %d }",
+					get_packet_type_name(p->wlan_type), ether_sprintf(conf.my_mac_addr), device_mac, p->phy_signal, p->phy_freq, p->wlan_channel);
+	*/
+	reply = redisCommand(c,"GET session_%s", device_mac);
+
+	cJSON *message, *pings, *ping, *session;
+
+	if (reply->str) {
+		//exists
+		message = cJSON_Parse(reply->str);
+		cJSON_DeleteItemFromObject(message, "updated");
+
+		
+		pings =  cJSON_GetObjectItem(message, "pings");
+		cJSON_AddItemToArray(pings, ping=cJSON_CreateObject());
+		cJSON_AddNumberToObject(ping, "ts", current_timestamp());
+		cJSON_AddNumberToObject(ping, "s", p->phy_signal);
+		cJSON_AddNumberToObject(ping, "f", p->phy_freq);
+
+		int pingCount = cJSON_GetObjectItem(message, "pingCount")->valueint + 1;
+		cJSON_DeleteItemFromObject(message, "pingCount");
+		cJSON_AddNumberToObject(message, "pingCount", pingCount);
+
+		is_new_session = false;
+
+	} else {
+
+		message = cJSON_CreateObject();
+		cJSON_AddNumberToObject(message, "created", current_timestamp());
+		cJSON_AddStringToObject(message, "hotspot", hotspot_mac);
+		cJSON_AddNumberToObject(message, "pingCount", 1); 
+		cJSON_AddStringToObject(message, "device", device_mac);
+		cJSON_AddStringToObject(message, "manufacturer", manufacturer);
+
+		pings = cJSON_CreateArray();
+		cJSON_AddItemToArray(pings, ping=cJSON_CreateObject());
+		cJSON_AddNumberToObject(ping, "ts", current_timestamp());
+		cJSON_AddNumberToObject(ping, "s", p->phy_signal);
+		cJSON_AddNumberToObject(ping, "f", p->phy_freq);
+
+		cJSON_AddItemToObject(message, "pings", pings);
+
+		is_new_session = true;
+
+	}
+	cJSON_AddNumberToObject(message, "updated", current_timestamp());
+
+	reply = redisCommand(c,"SET session_%s %s", device_mac, cJSON_Print(message));
+
+	if (is_new_session == true) {
+		
+		reply = redisCommand(c,"GET sessions");
+
+		if (reply->str) {
+			message = cJSON_Parse(reply->str);
+		} else {
+			message = cJSON_CreateArray();
+		}
+
+		cJSON_AddItemToArray(message, session=cJSON_CreateObject());
+		cJSON_AddNumberToObject(session, "created", current_timestamp());
+		cJSON_AddStringToObject(session, "hotspot", hotspot_mac);
+		cJSON_AddNumberToObject(session, "status", 1);
+		cJSON_AddStringToObject(session, "device", device_mac);
+		cJSON_AddStringToObject(session, "manufacturer", manufacturer);
+
+
+		reply = redisCommand(c,"SET sessions %s", cJSON_Print(message));
 	}
 
 	return;
@@ -432,6 +532,8 @@ static void write_to_server(struct packet_info* p) {
 	device_t* device;
 	char key[KEY_MAX_LENGTH];
 	memcpy(key, mac_name_lookup(p->wlan_src,0), 8);
+
+	
 	key[8] = '\0';
 
 	if (strstr(key, "00:00") != NULL)
@@ -440,15 +542,15 @@ static void write_to_server(struct packet_info* p) {
 
 	if (hashmap_length(devices) > 0) {
 
-		error = hashmap_get(devices, key, (void**)(&device));
+		error = hashmap_get(devices, key,  (void**)(&device));
 
-		//printf("%s - %d - %d\n", key, error, hashmap_length(devices));		
+		//printf("'%s' - %d - %d (%s)\n", key, error, hashmap_length(devices), device->name);		
 
 		if (error==MAP_MISSING) 
 			return true;
 
 	}
-
+	
 	return false;
 }
 
@@ -499,6 +601,8 @@ static void write_to_server(struct packet_info* p) {
 	 	return;
  	
 	 fixup_packet_channel(p);
+
+	 write_to_redis(p);
  
 	 if (cli_fd != -1)
 		 net_send_packet(p);
@@ -508,9 +612,6 @@ static void write_to_server(struct packet_info* p) {
  
 	 if (conf.paused)
 		 return;
- 
-	 if (conf.quiet && (save_visit(p)))
-		 write_to_server(p);
  
 	 /* we can't trust any fields except phy_* of packets with bad FCS */
 	 if (!(p->phy_flags & PHY_FLAG_BADFCS)) {
@@ -714,75 +815,49 @@ static void write_to_server(struct packet_info* p) {
 	 }
  }
  
- static void manufacturers_file_read(const char* filename)
- {
-	 FILE* fp;
-	 char line[255];
-	 char macs[9];
-	 char name[50];
-	 int idx = 0;
-	 int n, error;
- 
-	 if ((fp = fopen(filename, "r")) == NULL) {
-		 printlog("Could not open mac name file '%s'", filename);
-		 return;
-	 }
- 
-	 while (fgets(line, sizeof(line), fp) != NULL) {
+ static void load_mac_database() {
+	
+	if (c == NULL || c->err) { 
+		return;
+	}
 
-		 n = sscanf(line, "%8s|%s", macs, name);
+	int n, error;
 
-		 for(n = 0; macs[n] != '\0'; n++){
-			macs[n] = tolower(macs[n]);
-		 }
+	reply = redisCommand(c,"GET valid_manufacturers");
 
-		 device_t* device = malloc(sizeof(device_t));
-		 snprintf(device->key_string, sizeof(macs), "%s", macs);
-		 device->pings = 1;
-		 //printf("'%s'\n", device->key_string);
-		 error = hashmap_put(devices, device->key_string, device);
+    if (!reply->str) {
+		printf("Manufacturer list not found\n");
+        return;
+    }
 
-	 }
- 
-	 fclose(fp);
- 
- }
+	printf("Loading valid manufacturers\n");
 
- static void mac_name_file_read(const char* filename)
- {
-	 FILE* fp;
-	 char line[255];
-	 char macs[18];
-	 char name[18];
-	 int idx = 0;
-	 int n;
- 
-	 if ((fp = fopen(filename, "r")) == NULL) {
-		 printlog("Could not open mac name file '%s'", filename);
-		 return;
-	 }
- 
-	 while (fgets(line, sizeof(line), fp) != NULL) {
-		 // first try dnsmasq dhcp.leases format
-		 n = sscanf(line, "%*s %17s %*s %17s", macs, name);
-		 if (n < 2) // if not MAC name
-			 n = sscanf(line, "%17s %17s", macs, name);
-		 if (n == 2) {
-			 convert_string_to_mac(macs, node_names.entry[idx].mac);
-			 strncpy(node_names.entry[idx].name, name, MAX_NODE_NAME_STRLEN);
-			 node_names.entry[idx].name[MAX_NODE_NAME_STRLEN] = '\0';
-			 idx++;
-		 }
-	 }
- 
-	 fclose(fp);
- 
-	 node_names.count = idx;
- 
-	 for (n = 0; n < node_names.count; n++) {
-		 printlog("MAC %s = %s", ether_sprintf(node_names.entry[n].mac),
-			  node_names.entry[n].name );
-	 }
+	cJSON *list = cJSON_Parse(reply->str);
+
+	for (int i=0; i<cJSON_GetArraySize(list); i++) {
+		cJSON *item = cJSON_GetArrayItem(list, i);
+		char *mask = cJSON_GetObjectItem(item, "mask")->valuestring;
+		char *name = cJSON_GetObjectItem(item, "name")->valuestring;
+		
+		if (mask) {
+			for (int i = 0; mask[i] != '\0'; i++) {
+				mask[i] = tolower(mask[i]);
+			}
+
+			device_t* device = malloc(sizeof(device_t));
+			snprintf(device->key_string, 9, "%s", mask);
+			snprintf(device->name, 1024, "%s", name);
+	
+			device->pings = 1;
+			error = hashmap_put(devices, device->key_string, device);
+			
+		}
+
+
+	}
+
+	printf("Done loading\n");
+
  }
  
  const char* mac_name_lookup(const unsigned char* mac, int shorten_mac)
@@ -864,9 +939,27 @@ static void write_to_server(struct packet_info* p) {
 	return;
 		
  }
- 
+
+ void initializeRedis() {
+
+    struct timeval timeout = { 1, 500000 }; // 1.5 seconds
+    c = redisConnect(REDIS_HOST, REDIS_PORT);
+    if (c == NULL || c->err) {
+        if (c) {
+            printf("Error: %s\n", c->errstr);
+            // handle error
+        } else {
+            printf("Can't allocate redis context\n");
+        }
+    } else {
+		printf("Redis connection intialized");
+	}
+ }
+
+
  int main(int argc, char** argv)
  {
+	 
 	 sigset_t workmask;
 	 sigset_t waitmask;
 	 struct sigaction sigint_action;
@@ -877,7 +970,8 @@ static void write_to_server(struct packet_info* p) {
 	 init_spectrum();
  
 	 config_parse_file_and_cmdline(argc, argv);
- 
+
+
 	 sigint_action.sa_handler = sigint_handler;
 	 sigemptyset(&sigint_action.sa_mask);
 	 sigint_action.sa_flags = 0;
@@ -892,15 +986,12 @@ static void write_to_server(struct packet_info* p) {
  
 	 clock_gettime(CLOCK_MONOTONIC, &stats.stats_time);
 	 clock_gettime(CLOCK_MONOTONIC, &the_time);
- 
-	 visitors = hashmap_new();
-	 devices = hashmap_new();
+
 
 	 conf.channel_idx = -1;
  
-	 printlog("New version 4");
+	 printlog("New version 5");
 
-	 manufacturers_file_read(MAC_MANUFACTURER);		 
 
 	 if (conf.allow_control) {
 		 printlog("Allowing control socket '%s'", conf.control_pipe);
@@ -953,7 +1044,14 @@ static void write_to_server(struct packet_info* p) {
 			 err(1, "failed to change the initial channel number");
 	 }
 
-	 init_sniffer_socket();
+	 visitors = hashmap_new();
+	 devices = hashmap_new();
+
+	 initializeRedis();
+
+	 load_mac_database();
+
+	 //init_sniffer_socket();
 	 
 	 printf("Max PHY rate: %d Mbps\n", conf.max_phy_rate/10);
  

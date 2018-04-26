@@ -1,0 +1,41 @@
+# -*-perl-*-
+
+# If the current branch does not yet exist in Brazil, you can create and push
+# it simultaneously using the following command:
+# 'git push -u origin BRANCH_NAME_HERE'
+
+package.PahoEmbeddedMQTT = {
+  # Please read http://tiny/inaap63w/3PMajorVersionScheme before changing the
+  # suggested major version.
+  interfaces = (1.x);
+  scope = third-party;
+
+  third-party-configuration = {
+    # This is important, please do not remove it.
+    thirdPartyName       = "PahoEmbeddedMQTT";
+    thirdPartyVersion    = "v1.0.0";
+    licenseType          = "Eclipse Distribution License - v 1.0";
+    licenseFile          = "edl-v10";
+    approvedTicketNumber = "0050562212";
+    repository           = "raw";
+  };
+
+  build-system = brazilmake;
+  build-environment = {
+    chroot = basic;
+    network-access = blocked;
+  };
+
+  build-tools = {
+    1.x = {
+			BrazilMake = 1.0;
+      BrazilPath = 1.1;
+      CFlags = 1.0;
+      GnuMake = 3.81;
+    };
+  };
+
+  targets = {
+  };
+};
+# vim: set ft=perl ts=2 sw=2 tw=79 :

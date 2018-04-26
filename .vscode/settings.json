@@ -25,6 +25,16 @@
         "prism_header.h": "c",
         "curses.h": "c",
         "easy.h": "c",
-        "signal.h": "c"
+        "signal.h": "c",
+        "system_error": "c",
+        "array": "c",
+        "chrono": "c",
+        "istream": "c",
+        "ostream": "c",
+        "ratio": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c",
+        "typeinfo": "c"
     }
 }
