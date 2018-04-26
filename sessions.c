@@ -15,15 +15,16 @@
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 
-#define M_PI 3.14159265358979323846
+#define M_PI 3.14159265358979323846;
 
-const static char *CERTS="certs";
 
 const static char *REDIS_HOST = "127.0.0.1";
 const static int REDIS_PORT = 6379;
 
-const static int SESSION_EXPIRE_SECONDS = 30;
-const static int PINGS_TO_NOTIFY_OF_NEW_SESSION = 2;
+static int SESSION_EXPIRE_SECONDS = 30;
+static int PINGS_TO_NOTIFY_OF_NEW_SESSION = 2;
+static char *MQTT_HOST = "a3k5zrbvalc2ff.iot.us-east-1.amazonaws.com";
+static char *MQTT_THING_ID = "sniffer";
 
 redisContext *c;
 redisReply *reply;
@@ -39,7 +40,7 @@ long long current_timestamp() {
 
 void initializeMqtt() {
 
-	rc = MQTT_Connect("a3k5zrbvalc2ff.iot.us-east-1.amazonaws.com", 8883, "monitor1", "certs/rootCA.pem", "certs/cert.crt", "certs/private.key");
+	rc = MQTT_Connect(MQTT_HOST, 8883, MQTT_THING_ID, "certs/rootCA.pem", "certs/cert.crt", "certs/private.key");
 	if (NONE_ERROR != rc) {
 		printf("Error[%d] connecting", rc);
 	} else {
@@ -220,8 +221,24 @@ void checkKeys() {
     return;
 }
 
+void initializeDefaults() {
+    if (getenv("SESSION_EXPIRE_SECONDS")) {
+        SESSION_EXPIRE_SECONDS = atoi(getenv("SESSION_EXPIRE_SECONDS"));
+    }
+    if (getenv("PINGS_TO_NOTIFY_OF_NEW_SESSION")) {
+        PINGS_TO_NOTIFY_OF_NEW_SESSION = atoi(getenv("PINGS_TO_NOTIFY_OF_NEW_SESSION"));
+    }
+    if (getenv("MQTT_HOST")) {
+        MQTT_HOST = atoi(getenv("MQTT_HOST"));
+    }
+    if (getenv("MQTT_THING_ID")) {
+        MQTT_THING_ID = atoi(getenv("MQTT_THING_ID"));
+    }
+}
+
 int main(int argc, char** argv) {
 
+    initializeDefaults();
 
     initializeRedis();
 

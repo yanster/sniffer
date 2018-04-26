@@ -118,7 +118,7 @@ clean:
 	-rm -f $(NAME)
 	-rm -f .buildflags
 	-rm -f .objdeps.mk
-	make -f sessions.mk
+	#make -f sessions.mk
 
 .buildflags: force
 	echo '$(CFLAGS)' | cmp -s - $@ || echo '$(CFLAGS)' > $@
