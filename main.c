@@ -74,6 +74,10 @@
  struct config conf;
  
  struct timespec the_time;
+
+ struct timespec time_mono;
+ struct timespec time_real;
+
  
  int mon; /* monitoring socket */
  int sniffer;
@@ -963,6 +967,8 @@ static void write_to_redis(struct packet_info* p) {
 
  int main(int argc, char** argv)
  {
+
+	initializeRedis();
 	 
 	 sigset_t workmask;
 	 sigset_t waitmask;
@@ -1001,71 +1007,67 @@ static void write_to_redis(struct packet_info* p) {
 		 printlog("Allowing control socket '%s'", conf.control_pipe);
 		 control_init_pipe();
 	 }
- 
-	 if (conf.serveraddr[0] != '\0')
-		 mon = net_open_client_socket(conf.serveraddr, conf.port);
-	 else {
-		 ifctrl_init();
-		 ifctrl_iwget_interface_info(conf.ifname);
- 
-		 /* if the interface is not already in monitor mode, try to set
-		  * it to monitor or create an additional virtual monitor interface */
-		 if (conf.add_monitor || (!ifctrl_is_monitor() &&
-					  !ifctrl_iwset_monitor(conf.ifname))) {
-			 char mon_ifname[IF_NAMESIZE];
-			 generate_mon_ifname(mon_ifname, IF_NAMESIZE);
-			 if (!ifctrl_iwadd_monitor(conf.ifname, mon_ifname))
-				 err(1, "failed to add virtual monitor interface");
- 
-			 printlog("INFO: A virtual interface '%s' will be used "
-				  "instead of '%s'.", mon_ifname, conf.ifname);
- 
-			 strncpy(conf.ifname, mon_ifname, IF_NAMESIZE);
-			 conf.monitor_added = 1;
-			 /* Now we have a new monitor interface, proceed
-			  * normally. The interface will be deleted at exit. */
-		 }
- 
-		 if (!ifctrl_flags(conf.ifname, true, true))
-			 err(1, "failed to bring interface '%s' up",
-				 conf.ifname);
- 
-		 /* get info again, as chan width is only available on UP interfaces */
-		 ifctrl_iwget_interface_info(conf.ifname);
- 
-		 mon = open_packet_socket(conf.ifname, conf.recv_buffer_size);
-		 if (mon <= 0)
-			 err(1, "Couldn't open packet socket");
-		 conf.arphrd = device_get_hwinfo(mon, conf.ifname,
-						 conf.my_mac_addr);
- 
-		 if (conf.arphrd != ARPHRD_IEEE80211_PRISM &&
-			 conf.arphrd != ARPHRD_IEEE80211_RADIOTAP)
-			 err(1, "interface '%s' is not in monitor mode",
-				 conf.ifname);
- 
-		 if (!channel_init() && conf.quiet)
-			 err(1, "failed to change the initial channel number");
-	 }
+	if (conf.serveraddr[0] != '\0')
+		mon = net_open_client_socket(conf.serveraddr, conf.port);
+	else {
+		ifctrl_init();
+		ifctrl_iwget_interface_info(conf.ifname);
 
-	 visitors = hashmap_new();
-	 devices = hashmap_new();
+		/* if the interface is not already in monitor mode, try to set
+		 * it to monitor or create an additional virtual monitor interface */
+		if (conf.add_monitor || (!ifctrl_is_monitor() &&
+					 !ifctrl_iwset_monitor(conf.ifname))) {
+			char mon_ifname[IF_NAMESIZE];
+			generate_mon_ifname(mon_ifname, IF_NAMESIZE);
+			if (!ifctrl_iwadd_monitor(conf.ifname, mon_ifname))
+				err(1, "failed to add virtual monitor interface");
 
-	 initializeRedis();
+			printlog("INFO: A virtual interface '%s' will be used "
+				 "instead of '%s'.", mon_ifname, conf.ifname);
 
-	 load_mac_database();
+			strncpy(conf.ifname, mon_ifname, IF_NAMESIZE);
+			conf.monitor_added = 1;
+			/* Now we have a new monitor interface, proceed
+			 * normally. The interface will be deleted at exit. */
+		}
+
+		if (!ifctrl_flags(conf.ifname, true, true))
+			err(1, "failed to bring interface '%s' up",
+			    conf.ifname);
+
+		/* get info again, as chan width is only available on UP interfaces */
+		ifctrl_iwget_interface_info(conf.ifname);
+
+		mon = open_packet_socket(conf.ifname, conf.recv_buffer_size);
+		if (mon <= 0)
+			err(1, "Couldn't open packet socket");
+		conf.arphrd = device_get_hwinfo(mon, conf.ifname,
+						conf.my_mac_addr);
+
+		if (conf.arphrd != ARPHRD_IEEE80211_PRISM &&
+		    conf.arphrd != ARPHRD_IEEE80211_RADIOTAP)
+			err(1, "interface '%s' is not in monitor mode",
+			    conf.ifname);
+
+		if (!channel_init() && conf.quiet)
+			err(1, "failed to change the initial channel number");
+	}
+
 
 	 //init_sniffer_socket();
 	 
 	 printf("Max PHY rate: %d Mbps\n", conf.max_phy_rate/10);
  
-	 if (!conf.quiet && !conf.debug)
-		 init_display();
+	 //if (!conf.quiet && !conf.debug)
+	//	 init_display();
  
-	 if (conf.serveraddr[0] == '\0' && conf.port && conf.allow_client) 
-		 net_init_server_socket(conf.port);
+	 //if (conf.serveraddr[0] == '\0' && conf.port && conf.allow_client) 
+		// net_init_server_socket(conf.port);
 
-	
+	 visitors = hashmap_new();
+	 devices = hashmap_new();
+
+	 load_mac_database();
 	 
 	 /* Race-free signal handling:
 	  *   1. block all handled signals while working (with workmask)
@@ -1079,6 +1081,8 @@ static void write_to_redis(struct packet_info* p) {
 		 sigprocmask(SIG_BLOCK, &workmask, &waitmask) == -1)
 		 err(1, "failed to block signals: %m");
  
+
+
 	 while (!conf.do_change_channel || conf.channel_scan_rounds != 0)
 	 {
 		 receive_any(&waitmask);
