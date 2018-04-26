@@ -1,3 +1,6 @@
 [submodule "libuwifi"]
 	path = libuwifi
 	url = https://github.com/br101/libuwifi
+[submodule "hiredis"]
+	path = hiredis
+	url = https://github.com/redis/hiredis.git
