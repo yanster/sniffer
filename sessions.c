@@ -46,7 +46,7 @@ void initializeMqtt() {
         printf("Connected to MQTT Broker!\n");
     }
 
-    sendMessage("test", "hello!");
+    sendMessage("log", "{ \"hotspot\": \"1\", \"status\":\"Sniffer started\" }");
 
 }
 
