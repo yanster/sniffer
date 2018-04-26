@@ -108,6 +108,7 @@ endif
 
 $(NAME): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBS) -I hiredis
+	-make -f sessions.mk
 
 $(OBJS): .buildflags
 
