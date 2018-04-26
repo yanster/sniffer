@@ -52,7 +52,7 @@ OBJS=						   \
 	util.o					   \
 	hashmap.o					   \
 	wlan_util.o
-LIBS=-lncurses -lhiredis -lm cjson/cJSON.c
+LIBS=-lncurses -lhiredis -lm cJSON.c
 CFLAGS+=-std=gnu99 -Wall -Wextra -g -I.
 
 ifeq ($(OSX),1)
