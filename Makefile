@@ -52,7 +52,7 @@ OBJS=						   \
 	util.o					   \
 	hashmap.o					   \
 	wlan_util.o
-LIBS=-lncurses -lhiredis -lm cJSON.c
+LIBS=-lncurses -lhiredis -lm cjson/cJSON.c
 CFLAGS+=-std=gnu99 -Wall -Wextra -g -I.
 
 ifeq ($(OSX),1)
@@ -94,9 +94,9 @@ endif
 all: $(NAME)
 
 .objdeps.mk: $(OBJS:%.o=%.c)
-	$(CC) -MM -I. $^ >$@
+	gcc -MM -I. $^ >$@
 ifeq ($(OSX),1)
-	$(CC) -MM -I. ifctrl-osx.m >>$@
+	gcc -MM -I. ifctrl-osx.m >>$@
 endif
 
 -include .objdeps.mk
