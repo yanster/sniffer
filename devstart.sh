@@ -1,2 +1,2 @@
 make
-sudo ./horst -q -i wlp2s0
+sudo ./horst -i wlp2s0 -q

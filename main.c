@@ -355,12 +355,13 @@ static void write_to_redis(struct packet_info* p) {
 		message = cJSON_Parse(reply->str);
 		cJSON_DeleteItemFromObject(message, "updated");
 
-		
+		/*
 		pings =  cJSON_GetObjectItem(message, "pings");
 		cJSON_AddItemToArray(pings, ping=cJSON_CreateObject());
 		cJSON_AddNumberToObject(ping, "ts", current_timestamp());
 		cJSON_AddNumberToObject(ping, "s", p->phy_signal);
 		cJSON_AddNumberToObject(ping, "f", p->phy_freq);
+		*/
 
 		int pingCount = cJSON_GetObjectItem(message, "pingCount")->valueint + 1;
 		cJSON_DeleteItemFromObject(message, "pingCount");
@@ -377,6 +378,7 @@ static void write_to_redis(struct packet_info* p) {
 		cJSON_AddStringToObject(message, "device", device_mac);
 		cJSON_AddStringToObject(message, "manufacturer", manufacturer);
 
+		/*
 		pings = cJSON_CreateArray();
 		cJSON_AddItemToArray(pings, ping=cJSON_CreateObject());
 		cJSON_AddNumberToObject(ping, "ts", current_timestamp());
@@ -384,6 +386,7 @@ static void write_to_redis(struct packet_info* p) {
 		cJSON_AddNumberToObject(ping, "f", p->phy_freq);
 
 		cJSON_AddItemToObject(message, "pings", pings);
+		*/
 
 		is_new_session = true;
 
@@ -1003,10 +1006,12 @@ static void write_to_redis(struct packet_info* p) {
 	}
 
 	printlog("New version 6");
+	
 	initializeRedis();
 	visitors = hashmap_new();
 	devices = hashmap_new();
 	load_mac_database();
+	
 
 	if (conf.serveraddr[0] != '\0')
 		mon = net_open_client_socket(conf.serveraddr, conf.port);
@@ -1051,7 +1056,7 @@ static void write_to_redis(struct packet_info* p) {
 			    conf.ifname);
 
 		if (!channel_init() && conf.quiet)
-			err(1, "failed to change the initial channel number");
+			err(1, "failed to change the initial channel number!");
 	}
 
 	printf("Max PHY rate: %d Mbps\n", conf.max_phy_rate/10);
