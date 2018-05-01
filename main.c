@@ -64,6 +64,8 @@
  #define MIN_DURATION_BETWEEN_PINGS (5)
  #define KEY_COUNT (2048*2048)
 
+ #define M_PI 3.14159265358979323846;
+
  struct list_head nodes;
  struct essid_meta_info essids;
  struct history hist;
@@ -141,6 +143,48 @@
 		 display_log(buf);
 	 }
  }
+
+ float calc_distance(float freq, float sig) {
+
+
+    if (freq == 0) {
+        return -1;
+    }
+    
+    float lx = 300.0 / freq;
+    float distcorr = 1;
+    
+    float g1 = 0;
+    float g2 = 0;
+    
+    g1 = g1 / 10;
+    g1 = pow(10,g1);
+    g2 = g2 / 10;
+    g2 = pow(10,g2);
+    sig = sig / 10;
+    sig = pow(10, sig);  
+    
+    lx = 300.0 / freq;
+    
+    float dx = lx * sqrt(g1 * g2 / sig) / (4.0 * 3.14);
+    
+    dx = dx / distcorr;
+    
+    dx = round(dx * 1000) / 1000; 
+    
+    if (dx >= 10)
+        dx = round(dx * 100) / 100;
+    
+    if (dx >= 100)
+        dx = round(dx * 10) / 10;
+    
+    if (dx >= 1000) {
+        dx = round(dx);
+    }
+
+    return dx;
+ 
+}
  
  static void update_history(struct packet_info* p)
  {
@@ -271,28 +315,6 @@
  } device_t;
 
 
-static void write_to_server(struct packet_info* p) {
-
-	if (sniffer < 0 ) 
-		return;
-
-	char nline[1024];
-
-	char device_mac[18];
-
-	snprintf(device_mac, sizeof(device_mac), "%s", mac_name_lookup(p->wlan_src,0));
-
-	snprintf(nline, sizeof(nline), "{ \"type\": \"%s\", \"hotspot\": \"%s\", \"mac\": \"%s\", \"signal\": %d, \"freq\": %d, \"channel\": %d }",
-					get_packet_type_name(p->wlan_type), ether_sprintf(conf.my_mac_addr), device_mac, p->phy_signal, p->phy_freq, p->wlan_channel);
-
-	if (sendto(sniffer, nline, strlen(nline), 0, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-		printlog("Failed to send");
-	}
-
-	return;
-
-}
-
 long long current_timestamp() {
     struct timeval te; 
     gettimeofday(&te, NULL); // get current time
@@ -325,6 +347,7 @@ static char * get_manufacturer_name(char *device_mac) {
 
 }
 
+
 static void write_to_redis(struct packet_info* p) {
 
 	if (c == NULL || c->err) { 
@@ -341,31 +364,24 @@ static void write_to_redis(struct packet_info* p) {
 
 	char *manufacturer = get_manufacturer_name(device_mac);
 
-	//sprintf("%s", manufacturer);
-	/*
-	snprintf(nline, sizeof(nline), "{ \"type\": \"%s\", \"hotspot\": \"%s\", \"mac\": \"%s\", \"signal\": %d, \"freq\": %d, \"channel\": %d }",
-					get_packet_type_name(p->wlan_type), ether_sprintf(conf.my_mac_addr), device_mac, p->phy_signal, p->phy_freq, p->wlan_channel);
-	*/
 	reply = redisCommand(c,"GET session_%s", device_mac);
 
-	cJSON *message, *pings, *ping, *session;
+	cJSON *message, *session;
 
+	float distance = calc_distance(p->phy_freq, p->phy_signal);
+
+	//exists
 	if (reply->str) {
-		//exists
 		message = cJSON_Parse(reply->str);
 		cJSON_DeleteItemFromObject(message, "updated");
 
-		/*
-		pings =  cJSON_GetObjectItem(message, "pings");
-		cJSON_AddItemToArray(pings, ping=cJSON_CreateObject());
-		cJSON_AddNumberToObject(ping, "ts", current_timestamp());
-		cJSON_AddNumberToObject(ping, "s", p->phy_signal);
-		cJSON_AddNumberToObject(ping, "f", p->phy_freq);
-		*/
+		int pingCount = cJSON_GetObjectItem(message, "pings")->valueint + 1;
+		cJSON_DeleteItemFromObject(message, "pings");
+		cJSON_AddNumberToObject(message, "pings", pingCount);
 
-		int pingCount = cJSON_GetObjectItem(message, "pingCount")->valueint + 1;
-		cJSON_DeleteItemFromObject(message, "pingCount");
-		cJSON_AddNumberToObject(message, "pingCount", pingCount);
+		double totalDistance = cJSON_GetObjectItem(message, "totalDistance")->valuedouble + distance;
+		cJSON_DeleteItemFromObject(message, "totalDistance");
+		cJSON_AddNumberToObject(message, "totalDistance", totalDistance);
 
 		is_new_session = false;
 
@@ -374,24 +390,16 @@ static void write_to_redis(struct packet_info* p) {
 		message = cJSON_CreateObject();
 		cJSON_AddNumberToObject(message, "created", current_timestamp());
 		cJSON_AddStringToObject(message, "hotspot", hotspot_mac);
-		cJSON_AddNumberToObject(message, "pingCount", 1); 
+		cJSON_AddNumberToObject(message, "pings", 1); 
 		cJSON_AddStringToObject(message, "device", device_mac);
 		cJSON_AddStringToObject(message, "manufacturer", manufacturer);
-
-		/*
-		pings = cJSON_CreateArray();
-		cJSON_AddItemToArray(pings, ping=cJSON_CreateObject());
-		cJSON_AddNumberToObject(ping, "ts", current_timestamp());
-		cJSON_AddNumberToObject(ping, "s", p->phy_signal);
-		cJSON_AddNumberToObject(ping, "f", p->phy_freq);
-
-		cJSON_AddItemToObject(message, "pings", pings);
-		*/
+		cJSON_AddNumberToObject(message, "totalDistance", calc_distance(p->phy_freq, p->phy_signal)); 
 
 		is_new_session = true;
 
 	}
 	cJSON_AddNumberToObject(message, "updated", current_timestamp());
+	cJSON_AddNumberToObject(message, "lastDistance", calc_distance(p->phy_freq, p->phy_signal)); 
 
 	reply = redisCommand(c,"SET session_%s %s", device_mac, cJSON_Print(message));
 
@@ -416,39 +424,12 @@ static void write_to_redis(struct packet_info* p) {
 		reply = redisCommand(c,"SET sessions %s", cJSON_Print(message));
 	}
 
+	cJSON_Delete(message);
+
 	return;
 
 }
 
- static void write_to_file(struct packet_info* p)
- {
-	 char buf[40];
-	 int i;
-	 struct tm* ltm = localtime(&the_time.tv_sec);
-	 char nline[256];
- 
-	 //timestamp, e.g. 2015-05-16 15:05:44.338806 +0300
-	 
-	 i = strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", ltm);
-	 i += snprintf(buf + i, sizeof(buf) - i, ".%06ld", (long)(the_time.tv_nsec / 1000));
-	 i += strftime(buf + i, sizeof(buf) - i, " %z", ltm);
-	 fprintf(DF, "%s, ", buf);
- 
-	 fprintf(DF, "%s, %s, ",
-		 get_packet_type_name(p->wlan_type), ether_sprintf(p->wlan_src));
-	 fprintf(DF, "%s, ", ether_sprintf(p->wlan_dst));
-	 fprintf(DF, "%s, ", ether_sprintf(p->wlan_bssid));
-	 fprintf(DF, "%x, %d, %d, %d, %d, ",
-		 p->pkt_types, p->phy_signal, p->wlan_len, p->phy_rate, p->phy_freq);
-	 fprintf(DF, "%016llx, ", (unsigned long long)p->wlan_tsf);
-	 fprintf(DF, "%s, %d, %d, %d, %d, %d, ",
-		 p->wlan_essid, p->wlan_mode, p->wlan_channel,
-		 p->wlan_wep, p->wlan_wpa, p->wlan_rsn);
-	 fprintf(DF, "%s, %s\n", ip_sprintf(p->ip_src), ip_sprintf(p->ip_dst));
-	 fflush(DF);
- 
- }
- 
  /* return true if packet is filtered */
  static bool filter_packet(struct packet_info* p)
  {
@@ -565,38 +546,6 @@ static void write_to_redis(struct packet_info* p) {
 	return false;
 }
 
- bool save_visit(struct packet_info* p) {
-
-	int error;
-	visit_t* profile;
-	char key[KEY_MAX_LENGTH];
-	snprintf(key, sizeof(key), "%s", mac_name_lookup(p->wlan_src,0));
-
-	error = hashmap_get(visitors, key, (void**)(&profile));
-
-	if (error==MAP_MISSING) {
-		profile = malloc(sizeof(visit_t));
-		snprintf(profile->key_string, sizeof(key), "%s", key);
-		profile->pings = 1;	
-		profile->updated = time(NULL);
-		profile->created = time(NULL);
-
-		error = hashmap_put(visitors, profile->key_string, profile);
-	}
-
-	if (error==MAP_OK) {
-
-		//printf("%s - %d, %d (%d)\n", key, time(NULL), profile->updated, time(NULL) - profile->updated);
-		if (time(NULL) - profile->updated < MIN_DURATION_BETWEEN_PINGS)
-			return false;
-
-		profile->pings = profile->pings + 1;
-		profile->updated = time(NULL);
-	}
-
-	return true;
-}
- 
  void handle_packet(struct packet_info* p)
  {
 	 struct node_info* n = NULL;
@@ -614,12 +563,6 @@ static void write_to_redis(struct packet_info* p) {
 	 fixup_packet_channel(p);
 
 	 write_to_redis(p);
- 
-	 if (cli_fd != -1)
-		 net_send_packet(p);
- 
-	 if (conf.dumpfile[0] != '\0' && !conf.paused && DF != NULL)
-		 write_to_file(p);
  
 	 if (conf.paused)
 		 return;
@@ -925,31 +868,6 @@ static void write_to_redis(struct packet_info* p) {
 	return 1;
 }
 
- void init_sniffer_socket() {
-
-	char ip[100];
-     
-    hostname_to_ip(conf.sniffer , ip);
-
-	printf("STARTING sniffer to %s (%s):%i \n", conf.sniffer, ip, conf.sniffer_port);
-	
-	if ((sniffer=socket(AF_INET, SOCK_DGRAM, 0))==-1) {
-		printf("socket() failed\n");
-		exit(1);
-	}
-
-	servaddr.sin_family = AF_INET;
-	servaddr.sin_port = htons(conf.sniffer_port);
-	memset(servaddr.sin_zero, '\0', sizeof servaddr.sin_zero);  
-
-	if (inet_aton(ip, &servaddr.sin_addr)==0) {
-		printf("inet_aton() failed\n");
-		exit(1);
-	} 
-
-	return;
-		
- }
 
  void initializeRedis() {
 
@@ -1008,7 +926,7 @@ static void write_to_redis(struct packet_info* p) {
 	printlog("New version 6");
 	
 	initializeRedis();
-	visitors = hashmap_new();
+	//visitors = hashmap_new();
 	devices = hashmap_new();
 	load_mac_database();
 	
