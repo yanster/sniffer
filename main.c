@@ -424,6 +424,7 @@ static void write_to_redis(struct packet_info* p) {
 	}
 
 	cJSON_Delete(message);
+	
 
 	return;
 
@@ -555,10 +556,10 @@ static void write_to_redis(struct packet_info* p) {
 			 update_display_clock();
 		 return;
 	 }
-	 
+	 /*
 	 if (filter_devices(p))
 	 	return;
- 	
+ 	 */
 	 fixup_packet_channel(p);
 
 	 write_to_redis(p);
