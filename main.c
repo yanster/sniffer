@@ -361,7 +361,6 @@ static void write_to_redis(struct packet_info* p) {
 	snprintf(device_mac, sizeof(device_mac), "%s", mac_name_lookup(p->wlan_src,0));
 	snprintf(hotspot_mac, sizeof(hotspot_mac), "%s", ether_sprintf(conf.my_mac_addr));
 
-
 	char *manufacturer = get_manufacturer_name(device_mac);
 
 	reply = redisCommand(c,"GET session_%s", device_mac);
@@ -923,14 +922,13 @@ static void write_to_redis(struct packet_info* p) {
 		control_init_pipe();
 	}
 
-	printlog("New version 6");
+	printlog("Build 7");
 	
 	initializeRedis();
 	//visitors = hashmap_new();
 	devices = hashmap_new();
 	load_mac_database();
 	
-
 	if (conf.serveraddr[0] != '\0')
 		mon = net_open_client_socket(conf.serveraddr, conf.port);
 	else {
