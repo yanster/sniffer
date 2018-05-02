@@ -1050,6 +1050,8 @@ int hostname_to_ip(char * hostname , char* ip)
 
 	config_parse_file_and_cmdline(argc, argv);
 
+	conf.redis = 1;
+
 	sigint_action.sa_handler = sigint_handler;
 	sigemptyset(&sigint_action.sa_mask);
 	sigint_action.sa_flags = 0;
