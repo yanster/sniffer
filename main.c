@@ -63,6 +63,7 @@
  #define KEY_PREFIX ("somekey")
  #define MIN_DURATION_BETWEEN_PINGS (5)
  #define KEY_COUNT (2048*2048)
+ #define RADIUS (200)
 
  #define M_PI 3.14159265358979323846;
 
@@ -391,12 +392,17 @@ static void write_to_redis(struct packet_info* p) {
 		return;
 	}
 
+	float distance = calc_distance(p->phy_freq, p->phy_signal);
+	
+	if (distance > RADIUS) {
+		return;
+	}
+
 	bool is_new_session=true;
-	
-	
+		
 	char *hotspot_mac[18];
 	char *device_mac[18];
-	
+
 	snprintf(device_mac, sizeof(device_mac), "%s",  mac_name_lookup(p->wlan_src,0));
 	snprintf(hotspot_mac, sizeof(hotspot_mac), "%s", ether_sprintf(conf.my_mac_addr));
 	
@@ -410,7 +416,6 @@ static void write_to_redis(struct packet_info* p) {
 	
 	cJSON *message;
 
-	float distance = calc_distance(p->phy_freq, p->phy_signal);
 
 	//exists
 	if (reply->str) {
@@ -640,8 +645,8 @@ static void write_to_redis(struct packet_info* p) {
 		 return;
 	 }
 	 
-	 if (filter_devices(p))
-	 	return;
+	 //if (filter_devices(p))
+	 //	return;
  	 
 	 fixup_packet_channel(p);
 
