@@ -397,7 +397,7 @@ static void write_to_redis(struct packet_info* p) {
 	char *hotspot_mac[18];
 	char *device_mac[18];
 	
-	snprintf(device_mac, sizeof(device_mac), "%s",  ether_sprintf(p->wlan_src));
+	snprintf(device_mac, sizeof(device_mac), "%s",  mac_name_lookup(p->wlan_src,0));
 	snprintf(hotspot_mac, sizeof(hotspot_mac), "%s", ether_sprintf(conf.my_mac_addr));
 	
 	
@@ -440,7 +440,6 @@ static void write_to_redis(struct packet_info* p) {
 		cJSON_AddStringToObject(message, "device", device_mac);
 		//cJSON_AddStringToObject(message, "manufacturer", manufacturer);
 		cJSON_AddNumberToObject(message, "totalDistance", distance); 
-		cJSON_AddNumberToObject(message, "lastDistance", distance); 
 
 		is_new_session = true;
 
@@ -536,10 +535,12 @@ static void write_to_redis(struct packet_info* p) {
 	 return false;
  }
  
-  bool save_visit(struct packet_info* p) {
+  bool rate_limiter(struct packet_info* p) {
+
+	printf("Here!\n");
 
 	int error;
-	visit_t* profile;
+	visit_t* profile = malloc(sizeof(visit_t));
 	char key[KEY_MAX_LENGTH];
 	snprintf(key, sizeof(key), "%s", mac_name_lookup(p->wlan_src,0));
 
@@ -557,13 +558,15 @@ static void write_to_redis(struct packet_info* p) {
 
 	if (error==MAP_OK) {
 
-		//printf("%s - %d, %d (%d)\n", key, time(NULL), profile->updated, time(NULL) - profile->updated);
+		printf("%s - %d, %d (%d)\n", key, time(NULL), profile->updated, time(NULL) - profile->updated);
 		if (time(NULL) - profile->updated < MIN_DURATION_BETWEEN_PINGS)
 			return false;
 
 		profile->pings = profile->pings + 1;
 		profile->updated = time(NULL);
 	}
+
+	//free(profile);
 
 	return true;
 }
@@ -639,7 +642,9 @@ static void write_to_redis(struct packet_info* p) {
  	 */
 	 fixup_packet_channel(p);
 
-	 write_to_redis(p);
+	//if (rate_limiter(p)) {
+		write_to_redis(p);
+	//}
  
 	 if (conf.paused)
 		 return;
