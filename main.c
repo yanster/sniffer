@@ -601,7 +601,7 @@ static void write_to_redis(struct packet_info* p) {
  bool filter_devices(struct packet_info* p) {
 	
 	int error;
-	device_t* device = malloc(sizeof(device_t));
+	device_t* device;
 	char key[KEY_MAX_LENGTH];
 	memcpy(key, mac_name_lookup(p->wlan_src,0), 8);
 
@@ -618,10 +618,13 @@ static void write_to_redis(struct packet_info* p) {
 
 		//printf("'%s' - %d - %d (%s)\n", key, error, hashmap_length(devices), device->name);		
 
+		free(device);
 		if (error==MAP_MISSING) 
 			return true;
 
 	}
+
+	free(device);
 	
 	return false;
 }
@@ -636,10 +639,10 @@ static void write_to_redis(struct packet_info* p) {
 			 update_display_clock();
 		 return;
 	 }
-	 /*
+	 
 	 if (filter_devices(p))
 	 	return;
- 	 */
+ 	 
 	 fixup_packet_channel(p);
 
 	//if (rate_limiter(p)) {
@@ -1074,7 +1077,7 @@ static void write_to_redis(struct packet_info* p) {
 	initialize_redis();
 	//visitors = hashmap_new();
 	devices = hashmap_new();
-	
+
 	load_mac_database();
 
 	/* Race-free signal handling:
