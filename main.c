@@ -347,7 +347,36 @@ static char * get_manufacturer_name(char *device_mac) {
 
 }
 
+static void add_new_session_to_list(char *hotspot_mac, char *device_mac) {
 
+	char *jsonRecord;
+	cJSON *message, *session;
+
+	reply = redisCommand(c,"GET sessions");
+
+	if (reply->str) {
+		message = cJSON_Parse(reply->str);
+	} else {
+		message = cJSON_CreateArray();
+	}
+
+	cJSON_AddItemToArray(message, session=cJSON_CreateObject());
+	cJSON_AddNumberToObject(session, "created", current_timestamp());
+	cJSON_AddStringToObject(session, "hotspot", hotspot_mac);
+	cJSON_AddNumberToObject(session, "status", 1);
+	cJSON_AddStringToObject(session, "device", device_mac);
+	//cJSON_AddStringToObject(session, "manufacturer", manufacturer);
+
+	jsonRecord = cJSON_Print(message);
+	reply = redisCommand(c,"SET sessions %s", jsonRecord);
+
+	cJSON_Delete(session);
+	//cJSON_Delete(message);
+	free(jsonRecord);
+
+	return;
+	
+}
 static void write_to_redis(struct packet_info* p) {
 
 	if (c == NULL || c->err) { 
@@ -356,22 +385,24 @@ static void write_to_redis(struct packet_info* p) {
 
 	bool is_new_session=true;
 	
+	/*
 	char *hotspot_mac[18];
 	char *device_mac[18];
+
+	char *mac = mac_name_lookup(p->wlan_src, 0);
 	
-	snprintf(device_mac, sizeof(device_mac), "%s", ether_sprintf(p->wlan_src));
+	snprintf(device_mac, sizeof(device_mac), "%s", mac);
 	snprintf(hotspot_mac, sizeof(hotspot_mac), "%s", ether_sprintf(conf.my_mac_addr));
-	
+	*/
 	//char *manufacturer = get_manufacturer_name(device_mac);
 	
-	//char *device_mac = ether_sprintf(p->wlan_src);
-	//char *hotspot_mac = ether_sprintf(conf.my_mac_addr);
+	char *device_mac = ether_sprintf(p->wlan_src);
+	char *hotspot_mac = ether_sprintf(conf.my_mac_addr);
 	
 	reply = redisCommand(c,"GET session_%s", device_mac);
 	
-	
-	cJSON *message, *session;
-	char *jsonRecord;
+	cJSON *message;
+	//jsonRecord;
 
 	float distance = calc_distance(p->phy_freq, p->phy_signal);
 
@@ -382,7 +413,7 @@ static void write_to_redis(struct packet_info* p) {
 		freeReplyObject(reply);
 		
 		cJSON_DeleteItemFromObject(message, "updated");
-
+		
 		int pingCount = cJSON_GetObjectItem(message, "pings")->valueint + 1;
 		cJSON_DeleteItemFromObject(message, "pings");
 		cJSON_AddNumberToObject(message, "pings", pingCount);
@@ -390,7 +421,7 @@ static void write_to_redis(struct packet_info* p) {
 		double totalDistance = cJSON_GetObjectItem(message, "totalDistance")->valuedouble + distance;
 		cJSON_DeleteItemFromObject(message, "totalDistance");
 		cJSON_AddNumberToObject(message, "totalDistance", totalDistance);
-
+		
 		is_new_session = false;
 
 	} else {
@@ -409,39 +440,19 @@ static void write_to_redis(struct packet_info* p) {
 	cJSON_AddNumberToObject(message, "updated", current_timestamp());
 	cJSON_AddNumberToObject(message, "lastDistance", distance); 
 
-	jsonRecord = cJSON_Print(message);
+	char *jsonRecord = cJSON_Print(message);
 	reply = redisCommand(c,"SET session_%s %s", device_mac, jsonRecord);
-	
+
+	cJSON_Delete(message);
+	free(jsonRecord);
+	freeReplyObject(reply);
+		
 	
 	if (is_new_session == true) {
-		
-		reply = redisCommand(c,"GET sessions");
-
-		if (reply->str) {
-			message = cJSON_Parse(reply->str);
-		} else {
-			message = cJSON_CreateArray();
-		}
-
-		cJSON_AddItemToArray(message, session=cJSON_CreateObject());
-		cJSON_AddNumberToObject(session, "created", current_timestamp());
-		cJSON_AddStringToObject(session, "hotspot", hotspot_mac);
-		cJSON_AddNumberToObject(session, "status", 1);
-		cJSON_AddStringToObject(session, "device", device_mac);
-		//cJSON_AddStringToObject(session, "manufacturer", manufacturer);
-
-		jsonRecord = cJSON_Print(message);
-		reply = redisCommand(c,"SET sessions %s", jsonRecord);
-
-		cJSON_Delete(session);
+		add_new_session_to_list(hotspot_mac, device_mac);
 	}
 	
-	cJSON_Delete(message);
 	
-	free(jsonRecord);
-	
-	freeReplyObject(reply);
-
 	return;
 
 }
