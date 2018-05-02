@@ -449,7 +449,6 @@ static void write_to_redis(struct packet_info* p) {
 	cJSON_AddNumberToObject(message, "lastDistance", distance); 
 
 	char *jsonRecord = cJSON_Print(message);
-	//reply = redisCommand(c,"SET session_%s %s", device_mac, jsonRecord);
 
 	char command[8096];
 	
