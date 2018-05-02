@@ -326,7 +326,7 @@ long long current_timestamp() {
 static char * get_manufacturer_name(char *device_mac) {
 	
 	int error;
-	device_t* device;
+	device_t* device =  malloc(sizeof(device_t));
 	char key[KEY_MAX_LENGTH];
 	memcpy(key, device_mac, 8);
 	key[8] = '\0';
@@ -339,9 +339,15 @@ static char * get_manufacturer_name(char *device_mac) {
 		if (error==MAP_MISSING) 
 			return NULL;
 
-		return device->name;
+		char *name = device->name;
+
+		free(device);
+
+		return name;
 
 	}
+
+	free(device);
 
 	return NULL;
 
@@ -385,24 +391,22 @@ static void write_to_redis(struct packet_info* p) {
 
 	bool is_new_session=true;
 	
-	/*
+	
 	char *hotspot_mac[18];
 	char *device_mac[18];
-
-	char *mac = mac_name_lookup(p->wlan_src, 0);
 	
-	snprintf(device_mac, sizeof(device_mac), "%s", mac);
+	snprintf(device_mac, sizeof(device_mac), "%s",  ether_sprintf(p->wlan_src));
 	snprintf(hotspot_mac, sizeof(hotspot_mac), "%s", ether_sprintf(conf.my_mac_addr));
-	*/
+	
+	
+	//char *device_mac = ether_sprintf(p->wlan_src);
+	//char *hotspot_mac = ether_sprintf(conf.my_mac_addr);
+	
 	//char *manufacturer = get_manufacturer_name(device_mac);
-	
-	char *device_mac = ether_sprintf(p->wlan_src);
-	char *hotspot_mac = ether_sprintf(conf.my_mac_addr);
-	
+
 	reply = redisCommand(c,"GET session_%s", device_mac);
 	
 	cJSON *message;
-	//jsonRecord;
 
 	float distance = calc_distance(p->phy_freq, p->phy_signal);
 
@@ -446,6 +450,8 @@ static void write_to_redis(struct packet_info* p) {
 	cJSON_Delete(message);
 	free(jsonRecord);
 	freeReplyObject(reply);
+
+	//free(manufacturer);
 		
 	
 	if (is_new_session == true) {
