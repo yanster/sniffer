@@ -383,6 +383,8 @@ static void add_new_session_to_list(char *hotspot_mac, char *device_mac) {
 	return;
 	
 }
+
+
 static void write_to_redis(struct packet_info* p) {
 
 	if (c == NULL || c->err) { 
@@ -417,7 +419,8 @@ static void write_to_redis(struct packet_info* p) {
 		freeReplyObject(reply);
 		
 		cJSON_DeleteItemFromObject(message, "updated");
-		
+		cJSON_DeleteItemFromObject(message, "lastDistance");
+
 		int pingCount = cJSON_GetObjectItem(message, "pings")->valueint + 1;
 		cJSON_DeleteItemFromObject(message, "pings");
 		cJSON_AddNumberToObject(message, "pings", pingCount);
@@ -425,7 +428,7 @@ static void write_to_redis(struct packet_info* p) {
 		double totalDistance = cJSON_GetObjectItem(message, "totalDistance")->valuedouble + distance;
 		cJSON_DeleteItemFromObject(message, "totalDistance");
 		cJSON_AddNumberToObject(message, "totalDistance", totalDistance);
-		
+
 		is_new_session = false;
 
 	} else {
@@ -437,6 +440,7 @@ static void write_to_redis(struct packet_info* p) {
 		cJSON_AddStringToObject(message, "device", device_mac);
 		//cJSON_AddStringToObject(message, "manufacturer", manufacturer);
 		cJSON_AddNumberToObject(message, "totalDistance", distance); 
+		cJSON_AddNumberToObject(message, "lastDistance", distance); 
 
 		is_new_session = true;
 
@@ -445,7 +449,16 @@ static void write_to_redis(struct packet_info* p) {
 	cJSON_AddNumberToObject(message, "lastDistance", distance); 
 
 	char *jsonRecord = cJSON_Print(message);
-	reply = redisCommand(c,"SET session_%s %s", device_mac, jsonRecord);
+	//reply = redisCommand(c,"SET session_%s %s", device_mac, jsonRecord);
+
+	char command[8096];
+	
+	sprintf(command, "SET session_%s %s", device_mac, jsonRecord);
+
+	//printf("%s\n", command);
+
+	//redisAsyncCommand(c, NULL, NULL, command, NULL);
+	reply = redisCommand(c, command);
 
 	cJSON_Delete(message);
 	free(jsonRecord);
@@ -524,6 +537,38 @@ static void write_to_redis(struct packet_info* p) {
 	 return false;
  }
  
+  bool save_visit(struct packet_info* p) {
+
+	int error;
+	visit_t* profile;
+	char key[KEY_MAX_LENGTH];
+	snprintf(key, sizeof(key), "%s", mac_name_lookup(p->wlan_src,0));
+
+	error = hashmap_get(visitors, key, (void**)(&profile));
+
+	if (error==MAP_MISSING) {
+		profile = malloc(sizeof(visit_t));
+		snprintf(profile->key_string, sizeof(key), "%s", key);
+		profile->pings = 1;	
+		profile->updated = time(NULL);
+		profile->created = time(NULL);
+
+		error = hashmap_put(visitors, profile->key_string, profile);
+	}
+
+	if (error==MAP_OK) {
+
+		//printf("%s - %d, %d (%d)\n", key, time(NULL), profile->updated, time(NULL) - profile->updated);
+		if (time(NULL) - profile->updated < MIN_DURATION_BETWEEN_PINGS)
+			return false;
+
+		profile->pings = profile->pings + 1;
+		profile->updated = time(NULL);
+	}
+
+	return true;
+}
+
  static void fixup_packet_channel(struct packet_info* p)
  {
 	 int i = -1;
@@ -554,7 +599,7 @@ static void write_to_redis(struct packet_info* p) {
  bool filter_devices(struct packet_info* p) {
 	
 	int error;
-	device_t* device;
+	device_t* device = malloc(sizeof(device_t));
 	char key[KEY_MAX_LENGTH];
 	memcpy(key, mac_name_lookup(p->wlan_src,0), 8);
 
@@ -837,11 +882,16 @@ static void write_to_redis(struct packet_info* p) {
 	
 			device->pings = 1;
 			error = hashmap_put(devices, device->key_string, device);
+
+			free(device);
 			
 		}
 
+		cJSON_Delete(item);
 
 	}
+
+	cJSON_Delete(list);
 
 	freeReplyObject(reply);
 
