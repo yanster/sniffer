@@ -326,7 +326,7 @@ static struct conf_option conf_options[] = {
 	/* C , NAME        VALUE REQUIRED, DEFAULT	CALLBACK */
 	{ 'q', "quiet",			0, NULL,	conf_quiet },		// NOT dynamic
 	{ 'u', "udp",			0, NULL,	conf_udp },
-	{ 'r', "redis",			0, NULL,	conf_redis },
+	{ 'r', "redis",			1, NULL,	conf_redis },
 #if DO_DEBUG
 	{ 'D', "debug", 		0, NULL,	conf_debug },		// NOT dynamic
 #endif
