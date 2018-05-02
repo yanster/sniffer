@@ -404,7 +404,7 @@ static void write_to_redis(struct packet_info* p) {
 	//char *device_mac = ether_sprintf(p->wlan_src);
 	//char *hotspot_mac = ether_sprintf(conf.my_mac_addr);
 	
-	//char *manufacturer = get_manufacturer_name(device_mac);
+	char *manufacturer = get_manufacturer_name(device_mac);
 
 	reply = redisCommand(c,"GET session_%s", device_mac);
 	
@@ -438,7 +438,7 @@ static void write_to_redis(struct packet_info* p) {
 		cJSON_AddStringToObject(message, "hotspot", hotspot_mac);
 		cJSON_AddNumberToObject(message, "pings", 1); 
 		cJSON_AddStringToObject(message, "device", device_mac);
-		//cJSON_AddStringToObject(message, "manufacturer", manufacturer);
+		cJSON_AddStringToObject(message, "manufacturer", manufacturer);
 		cJSON_AddNumberToObject(message, "totalDistance", distance); 
 
 		is_new_session = true;
@@ -462,7 +462,7 @@ static void write_to_redis(struct packet_info* p) {
 	free(jsonRecord);
 	freeReplyObject(reply);
 
-	//free(manufacturer);
+	free(manufacturer);
 		
 	
 	if (is_new_session == true) {
@@ -870,7 +870,11 @@ static void write_to_redis(struct packet_info* p) {
 
 	cJSON *list = cJSON_Parse(reply->str);
 
+	freeReplyObject(reply);
+
+
 	for (int i=0; i<cJSON_GetArraySize(list); i++) {
+
 		cJSON *item = cJSON_GetArrayItem(list, i);
 		char *mask = cJSON_GetObjectItem(item, "mask")->valuestring;
 		char *name = cJSON_GetObjectItem(item, "name")->valuestring;
@@ -891,13 +895,9 @@ static void write_to_redis(struct packet_info* p) {
 			
 		}
 
-		cJSON_Delete(item);
-
 	}
 
 	cJSON_Delete(list);
-
-	freeReplyObject(reply);
 
 	printf("Done loading\n");
 
@@ -958,7 +958,7 @@ static void write_to_redis(struct packet_info* p) {
 }
 
 
- void initializeRedis() {
+ void initialize_redis() {
 
     struct timeval timeout = { 1, 500000 }; // 1.5 seconds
     c = redisConnect(REDIS_HOST, REDIS_PORT);
@@ -1012,12 +1012,8 @@ static void write_to_redis(struct packet_info* p) {
 		control_init_pipe();
 	}
 
-	printlog("Build 7");
+
 	
-	initializeRedis();
-	//visitors = hashmap_new();
-	devices = hashmap_new();
-	load_mac_database();
 	
 	if (conf.serveraddr[0] != '\0')
 		mon = net_open_client_socket(conf.serveraddr, conf.port);
@@ -1072,6 +1068,14 @@ static void write_to_redis(struct packet_info* p) {
 
 	if (conf.serveraddr[0] == '\0' && conf.port && conf.allow_client)
 		net_init_server_socket(conf.port);
+
+	printlog("Build 7");
+	
+	initialize_redis();
+	//visitors = hashmap_new();
+	devices = hashmap_new();
+	
+	load_mac_database();
 
 	/* Race-free signal handling:
 	 *   1. block all handled signals while working (with workmask)
