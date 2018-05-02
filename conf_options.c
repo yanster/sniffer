@@ -41,6 +41,16 @@ static bool conf_quiet(__attribute__((unused)) const char* value) {
 	return true;
 }
 
+static bool conf_udp(__attribute__((unused)) const char* value) {
+	conf.udp = 1;
+	return true;
+}
+
+static bool conf_redis(__attribute__((unused)) const char* value) {
+	conf.redis = 1;
+	return true;
+}
+
 #if DO_DEBUG
 static bool conf_debug(__attribute__((unused)) const char* value) {
 	conf.debug = 1;
@@ -315,6 +325,8 @@ static bool conf_mac_names(const char* value) {
 static struct conf_option conf_options[] = {
 	/* C , NAME        VALUE REQUIRED, DEFAULT	CALLBACK */
 	{ 'q', "quiet",			0, NULL,	conf_quiet },		// NOT dynamic
+	{ 'u', "udp",			0, NULL,	conf_udp },
+	{ 'r', "redis",			0, NULL,	conf_redis },
 #if DO_DEBUG
 	{ 'D', "debug", 		0, NULL,	conf_debug },		// NOT dynamic
 #endif

@@ -479,6 +479,28 @@ static void write_to_redis(struct packet_info* p) {
 
 }
 
+static void write_to_server(struct packet_info* p) {
+
+	if (sniffer < 0 ) 
+		return;
+
+	char nline[1024];
+
+	char device_mac[18];
+
+	snprintf(device_mac, sizeof(device_mac), "%s", mac_name_lookup(p->wlan_src,0));
+
+	snprintf(nline, sizeof(nline), "{ \"type\": \"%s\", \"hotspot\": \"%s\", \"mac\": \"%s\", \"signal\": %d, \"freq\": %d, \"channel\": %d }",
+					get_packet_type_name(p->wlan_type), ether_sprintf(conf.my_mac_addr), device_mac, p->phy_signal, p->phy_freq, p->wlan_channel);
+
+	if (sendto(sniffer, nline, strlen(nline), 0, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+		printlog("Failed to send");
+	}
+
+	return;
+
+}
+
  /* return true if packet is filtered */
  static bool filter_packet(struct packet_info* p)
  {
@@ -651,8 +673,14 @@ static void write_to_redis(struct packet_info* p) {
 	 fixup_packet_channel(p);
 
 	//if (rate_limiter(p)) {
+	if (conf.redis==1) {
 		write_to_redis(p);
+	}
 	//}
+
+	if (conf.udp==1) { 
+		write_to_server(p);
+	}
  
 	 if (conf.paused)
 		 return;
@@ -941,30 +969,30 @@ static void write_to_redis(struct packet_info* p) {
 	 }
  }
 
- int hostname_to_ip(char * hostname , char* ip) {
-	struct hostent *he;
-	struct in_addr **addr_list;
-	int i;
-		
-	if ( (he = gethostbyname( hostname ) ) == NULL) 
-	{
-		// get the host info
-		herror("gethostbyname");
-		return 1;
-	}
-
-	addr_list = (struct in_addr **) he->h_addr_list;
-	
-	for(i = 0; addr_list[i] != NULL; i++) 
-	{
-		//Return the first one;
-		strcpy(ip , inet_ntoa(*addr_list[i]) );
-		return 0;
-	}
-	
-	return 1;
+int hostname_to_ip(char * hostname , char* ip)
+{
+    struct hostent *he;
+    struct in_addr **addr_list;
+    int i;
+         
+    if ( (he = gethostbyname( hostname ) ) == NULL) 
+    {
+        // get the host info
+        herror("gethostbyname");
+        return 1;
+    }
+ 
+    addr_list = (struct in_addr **) he->h_addr_list;
+     
+    for(i = 0; addr_list[i] != NULL; i++) 
+    {
+        //Return the first one;
+        strcpy(ip , inet_ntoa(*addr_list[i]) );
+        return 0;
+    }
+     
+    return 1;
 }
-
 
  void initialize_redis() {
 
@@ -982,6 +1010,31 @@ static void write_to_redis(struct packet_info* p) {
 	}
  }
 
+ void init_sniffer_socket() {
+
+	char ip[100];
+    
+    hostname_to_ip(conf.sniffer, ip);
+
+	printf("STARTING sniffer to %s (%s):%i \n", conf.sniffer, ip, conf.sniffer_port);
+	
+	if ((sniffer=socket(AF_INET, SOCK_DGRAM, 0))==-1) {
+		printf("socket() failed\n");
+		exit(1);
+	}
+
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_port = htons(conf.sniffer_port);
+	memset(servaddr.sin_zero, '\0', sizeof servaddr.sin_zero);  
+
+	if (inet_aton(ip, &servaddr.sin_addr)==0) {
+		printf("inet_aton() failed\n");
+		exit(1);
+	} 
+
+	return;
+		
+ }
 
  int main(int argc, char** argv)
  {
@@ -1015,13 +1068,14 @@ static void write_to_redis(struct packet_info* p) {
 	conf.channel_idx = -1;
 
 
+	if (conf.udp==1) {
+		init_sniffer_socket();
+	}
+
 	if (conf.allow_control) {
 		printlog("Allowing control socket '%s'", conf.control_pipe);
 		control_init_pipe();
-	}
-
-
-	
+	}	
 	
 	if (conf.serveraddr[0] != '\0')
 		mon = net_open_client_socket(conf.serveraddr, conf.port);
@@ -1077,13 +1131,14 @@ static void write_to_redis(struct packet_info* p) {
 	if (conf.serveraddr[0] == '\0' && conf.port && conf.allow_client)
 		net_init_server_socket(conf.port);
 
-	printlog("Build 7");
+	printlog("Build 8");
 	
-	initialize_redis();
+	if (conf.redis == 1) {
+		initialize_redis();
+		load_mac_database();
+	}
 	//visitors = hashmap_new();
 	devices = hashmap_new();
-
-	load_mac_database();
 
 	/* Race-free signal handling:
 	 *   1. block all handled signals while working (with workmask)

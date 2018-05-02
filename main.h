@@ -300,6 +300,8 @@
 	 int			sniffer_port;
 	 int			port;
 	 int			quiet;
+	 int			udp;
+	 int			redis;
 	 int			node_timeout;
 	 int			channel_time;
 	 int			channel_max;
