@@ -351,8 +351,8 @@ static struct conf_option conf_options[] = {
 	{ 'm', "filter_mode",		1, "ALL",	conf_filter_mode },
 	{ 'f', "filter_packet",		1, "ALL",	conf_filter_pkt },
 	{ 'M', "mac_names",		2, NULL,	conf_mac_names },
-	{ 'S', "sniffer_ip",		0, "35.185.80.216",	conf_sniffer_ip },
-	{ 'S', "sniffer",		0, "dev1.getyfi.com",	conf_sniffer },
+	{ 'S', "sniffer_ip",		0, "35.229.102.139",	conf_sniffer_ip },
+	{ 'S', "sniffer",		0, "api.getyfi.com",	conf_sniffer },
 	{ 's', "sniffer_port",		0, "3333",	conf_sniffer_port },
 };
 
